@@ -1,0 +1,5 @@
+duckdb>=1.0.0
+matplotlib>=3.8.0
+certifi>=2024.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0

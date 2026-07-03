@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VR Study Web</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="login-view" class="login-view" hidden>
+        <form id="login-form" class="login-panel">
+          <div>
+            <p class="eyebrow">VR Study Web</p>
+            <h1>로그인</h1>
+          </div>
+          <label>
+            <span>계정</span>
+            <input id="username" name="username" autocomplete="username" required />
+          </label>
+          <label>
+            <span>비밀번호</span>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+          <button type="submit">로그인</button>
+          <p id="login-message" class="message" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section id="app-view" hidden>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">계정별 데이터</p>
+            <h1>VR Study</h1>
+          </div>
+          <div class="session-box">
+            <span id="session-user"></span>
+            <button id="logout-button" type="button">로그아웃</button>
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="요약">
+          <article>
+            <span>VR 결과</span>
+            <strong id="count-vr">0</strong>
+          </article>
+          <article>
+            <span>무한매수 프로필</span>
+            <strong id="count-infinite-profiles">0</strong>
+          </article>
+          <article>
+            <span>무한매수 로우</span>
+            <strong id="count-infinite-rows">0</strong>
+          </article>
+          <article>
+            <span>주문레벨</span>
+            <strong id="count-order-levels">0</strong>
+          </article>
+        </section>
+
+        <div class="tables">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>VR 프로필</h2>
+              <span id="vr-profile-count">0개</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>프로필</th>
+                    <th>종목</th>
+                    <th>계좌</th>
+                  </tr>
+                </thead>
+                <tbody id="vr-profiles"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>무한매수법</h2>
+              <span id="infinite-profile-count">0개</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>프로필</th>
+                    <th>종목</th>
+                    <th>시작일</th>
+                    <th>계좌</th>
+                    <th>상태</th>
+                  </tr>
+                </thead>
+                <tbody id="infinite-profiles"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
+

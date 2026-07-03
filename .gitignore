@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Build and release output
+build/
+dist/
+release/
+vrstudy_web/vendor/
+*.spec.bak
+
+# Runtime databases and local state
+*.duckdb
+*.duckdb.*
+*.wal
+*.lock
+data/
+profiles/
+
+# Secrets and credentials
+.env
+*.pem
+*.key
+*secret*
+*token*
+kiwoom_api_credentials*.json
+kiwoom_token_cache*.json
+telegram_settings*.json
+
+# Logs
+*.log
+
+# Keep documentation examples
+!data.example/
+!data.example/**
+!.env.example
