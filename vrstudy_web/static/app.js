@@ -1396,6 +1396,7 @@ function orderResultRows(result) {
   const executions = result?.order_executions || [];
   if (executions.length) return executions;
   return (result?.successes || []).map((message, index) => ({
+    order_date: result?.order_date || "",
     status: result?.ok ? "sent" : "failed",
     side_label: "",
     order_type: "",
@@ -1407,7 +1408,7 @@ function orderResultRows(result) {
 }
 
 function statusLabel(status) {
-  if (status === "sent") return "접수응답";
+  if (status === "sent") return "주문접수";
   if (status === "accepted") return "미체결";
   if (status === "filled") return "체결";
   if (status === "partial") return "부분체결";
@@ -1454,7 +1455,7 @@ function renderOrderResult(kind, result) {
     summary.appendChild(item);
   });
   if (!result) {
-    renderEmpty(tbody, 7);
+    renderEmpty(tbody, 8);
     return;
   }
   if (!executionRows.length) {
@@ -1466,7 +1467,8 @@ function renderOrderResult(kind, result) {
       quantity: "",
       order_no: "",
       message: orderResultStatusText(result),
-    }], 7, (row) => [
+    }], 8, (row) => [
+      row.order_date || "-",
       statusLabel(row.status),
       row.side_label,
       row.order_type,
@@ -1477,7 +1479,8 @@ function renderOrderResult(kind, result) {
     ]);
     return;
   }
-  rows(`${kind}-order-result-rows`, executionRows, 7, (row) => [
+  rows(`${kind}-order-result-rows`, executionRows, 8, (row) => [
+    row.order_date || "-",
     statusLabel(orderResultStatus(row)),
     row.side_label,
     row.order_type,

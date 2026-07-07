@@ -248,6 +248,7 @@ def _recent_order_execution_rows(
         """
         SELECT
             created_at,
+            order_date,
             symbol,
             side_label,
             order_type,
@@ -2577,8 +2578,24 @@ def _execute_us_order_rows(
                     _order_failure_message(exc),
                 )
             raise
-        ord_no = result.get("ord_no") or result.get("odno") or "-"
+        ord_no = str(result.get("ord_no") or result.get("odno") or "").strip()
         price = "시장가" if row.get("price") is None else _clean_number_text(row.get("price"))
+        if not ord_no:
+            message = str(result.get("return_msg") or "").strip()
+            if not message:
+                message = "키움 주문 응답에 주문번호가 없어 접수 실패로 처리했습니다."
+            if log_con is not None and order_date is not None and strategy and profile_name:
+                _record_order_execution(
+                    log_con,
+                    strategy,
+                    profile_name,
+                    order_date,
+                    row,
+                    "failed",
+                    result,
+                    message,
+                )
+            continue
         message = (
             f"{index}. {row['side_label']} {row['quantity']}주 "
             f"{price} {row.get('order_type') or ''} 주문번호 {ord_no}"
@@ -3026,11 +3043,22 @@ def execute_vr_web_orders(
             )
         except Exception:
             pass
+        failed_count = sum(
+            1
+            for row in order_executions
+            if str(row.get("status") or "") == "failed"
+        )
+        ok = bool(successes)
+        result_label = "완료" if ok else "실패"
         return {
-            "ok": True,
-            "message": f"{action_label} 완료: {len(successes)}건 / 주문 실행일 {query_day} / {token_state}",
+            "ok": ok,
+            "message": (
+                f"{action_label} {result_label}: 성공 {len(successes)}건 / 실패 {failed_count}건 "
+                f"/ 주문 실행일 {query_day} / {token_state}"
+            ),
             "successes": successes,
             "order_executions": order_executions,
+            "order_date": query_day.isoformat(),
             "summary": {
                 "original": original_summary,
                 "deducted": deducted_summary,
@@ -3149,11 +3177,22 @@ def execute_infinite_web_orders(
             )
         except Exception:
             pass
+        failed_count = sum(
+            1
+            for row in order_executions
+            if str(row.get("status") or "") == "failed"
+        )
+        ok = bool(successes)
+        result_label = "완료" if ok else "실패"
         return {
-            "ok": True,
-            "message": f"{action_label} 완료: {len(successes)}건 / 주문 실행일 {basis_date} / {token_state}",
+            "ok": ok,
+            "message": (
+                f"{action_label} {result_label}: 성공 {len(successes)}건 / 실패 {failed_count}건 "
+                f"/ 주문 실행일 {basis_date} / {token_state}"
+            ),
             "successes": successes,
             "order_executions": order_executions,
+            "order_date": basis_date.isoformat(),
         }
     except KiwoomApiError as exc:
         return {
