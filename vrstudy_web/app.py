@@ -141,6 +141,11 @@ class VrCycleInputRequest(BaseModel):
 class VrOrderRequest(BaseModel):
     sell_mode: str = "match_buy"
     sell_row_count: int | None = Field(default=None, ge=0, le=500)
+    force_reorder: bool = False
+
+
+class OrderExecutionRequest(BaseModel):
+    force_reorder: bool = False
 
 
 app = FastAPI(title="VR Study Web")
@@ -423,9 +428,13 @@ def api_infinite_balance(
 @app.post("/api/kiwoom/infinite/{profile_name}/execute-orders")
 def api_infinite_execute_orders(
     profile_name: str,
+    payload: OrderExecutionRequest | None = None,
     username: str = Depends(current_username),
 ) -> dict[str, object]:
-    return execute_infinite_web_orders(username, profile_name)
+    payload = payload or OrderExecutionRequest()
+    return execute_infinite_web_orders(
+        username, profile_name, force_reorder=payload.force_reorder
+    )
 
 
 @app.post("/api/kiwoom/vr/{profile_name}/execute-orders")
@@ -440,6 +449,7 @@ def api_vr_execute_orders(
         profile_name,
         sell_mode=payload.sell_mode,
         sell_row_count=payload.sell_row_count,
+        force_reorder=payload.force_reorder,
     )
 
 

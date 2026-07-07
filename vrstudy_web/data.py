@@ -1222,6 +1222,10 @@ def vr_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
         "order_levels": [],
         "order_basis": None,
         "order_executable": False,
+        "order_reorderable": False,
+        "order_date": "",
+        "order_expected_count": 0,
+        "order_history_warning": "",
         "order_message": "",
         "order_executions": [],
         "cycle_input": None,
@@ -1328,6 +1332,7 @@ def vr_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
                     start_day = date.fromisoformat(str(basis["start_date"]))
                     end_day = date.fromisoformat(str(basis["end_date"]))
                     has_orders = bool(detail["order_levels"])
+                    expected_count = _vr_match_buy_order_count(detail["order_levels"])
                     query_day = date.today()
                     sent_count = _successful_order_execution_count(
                         con, "vr", profile_name, query_day
@@ -1335,15 +1340,32 @@ def vr_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
                     detail["order_executions"] = _recent_order_execution_rows(
                         con, "vr", profile_name, query_day
                     )
+                    detail["order_date"] = query_day.isoformat()
+                    detail["order_expected_count"] = expected_count
                     detail["order_executable"] = bool(
                         start_day <= query_day <= end_day and has_orders and sent_count == 0
                     )
-                    detail["order_message"] = f"주문표 기간: {start_day} ~ {end_day}"
+                    detail["order_reorderable"] = bool(
+                        start_day <= query_day <= end_day and has_orders and sent_count > 0
+                    )
+                    detail["order_message"] = (
+                        f"주문표 기간: {start_day} ~ {end_day} / "
+                        f"주문 실행일: {query_day}"
+                    )
                     if sent_count:
                         detail["order_message"] = (
                             f"주문표 기간: {start_day} ~ {end_day} / "
-                            f"오늘 주문실행 이력 {sent_count}건"
+                            f"{query_day} 주문실행 이력 {sent_count}건"
                         )
+                        if expected_count and sent_count != expected_count:
+                            detail["order_history_warning"] = (
+                                f"현재 기본 주문옵션 예상 {expected_count}건과 "
+                                f"저장된 이력 {sent_count}건이 다릅니다."
+                            )
+                            detail["order_message"] = (
+                                f"{detail['order_message']} / "
+                                f"{detail['order_history_warning']}"
+                            )
             except Exception as exc:
                 detail["order_error"] = str(exc)
     finally:
@@ -1952,6 +1974,8 @@ def infinite_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
         "order_plan": None,
         "execution_input": None,
         "order_executable": False,
+        "order_reorderable": False,
+        "order_date": "",
         "order_message": "",
         "order_executions": [],
     }
@@ -2042,13 +2066,17 @@ def infinite_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
                     detail["order_executions"] = _recent_order_execution_rows(
                         con, "infinite", profile_name, basis_date
                     )
+                    detail["order_date"] = basis_date.isoformat()
                     detail["order_executable"] = bool(
                         basis_date == date.today() and has_orders and sent_count == 0
+                    )
+                    detail["order_reorderable"] = bool(
+                        basis_date == date.today() and has_orders and sent_count > 0
                     )
                     detail["order_message"] = f"주문표 날짜: {basis_date}"
                     if sent_count:
                         detail["order_message"] = (
-                            f"주문표 날짜: {basis_date} / 주문실행 이력 {sent_count}건"
+                            f"{basis_date} 주문실행 이력 {sent_count}건"
                         )
             except Exception as exc:
                 detail["order_error"] = str(exc)
@@ -2352,6 +2380,18 @@ def _order_rows_side_summary(rows: list[dict[str, Any]], quantity_key: str = "qu
     return summary
 
 
+def _vr_match_buy_order_count(order_rows: list[dict[str, Any]]) -> int:
+    buy_count = 0
+    sell_count = 0
+    for row in order_rows:
+        side = str(row.get("side") or "").strip().lower()
+        if side == "buy":
+            buy_count += 1
+        elif side == "sell":
+            sell_count += 1
+    return buy_count + min(buy_count, sell_count)
+
+
 def _execute_us_order_rows(
     credentials: KiwoomCredentials,
     token: Any,
@@ -2643,7 +2683,7 @@ def preview_vr_web_orders(
     if not (start_day <= query_day <= end_day):
         return {
             "ok": False,
-            "message": f"VR 주문표 미리보기 실패: 오늘 날짜가 주문표 기간에 포함되지 않습니다. 주문표 기간: {start_day}~{end_day}",
+            "message": f"VR 주문표 미리보기 실패: 주문 실행일 {query_day}가 주문표 기간에 포함되지 않습니다. 주문표 기간: {start_day}~{end_day}",
         }
     try:
         token, renewed = _ensure_user_kiwoom_token(username, "vr", profile_name, credentials)
@@ -2721,6 +2761,7 @@ def execute_vr_web_orders(
     profile_name: str,
     sell_mode: str = "match_buy",
     sell_row_count: int | None = None,
+    force_reorder: bool = False,
 ) -> dict[str, Any]:
     credentials = load_kiwoom_credentials("vr", profile_name, kiwoom_credentials_path(username))
     profile_data = _read_profile_file(user_data_dir(username), "vr", profile_name)
@@ -2741,7 +2782,7 @@ def execute_vr_web_orders(
     if not (start_day <= query_day <= end_day):
         return {
             "ok": False,
-            "message": f"VR 주문실행 실패: 오늘 날짜가 주문표 기간에 포함되지 않습니다. 주문표 기간: {start_day}~{end_day}",
+            "message": f"VR 주문실행 실패: 주문 실행일 {query_day}가 주문표 기간에 포함되지 않습니다. 주문표 기간: {start_day}~{end_day}",
         }
     duplicate_con = _connect_writable(user_db_path(username))
     try:
@@ -2749,13 +2790,13 @@ def execute_vr_web_orders(
         sent_count = _successful_order_execution_count(
             duplicate_con, "vr", profile_name, query_day
         )
-        if sent_count:
+        if sent_count and not force_reorder:
             sent_rows = _recent_order_execution_rows(
                 duplicate_con, "vr", profile_name, query_day
             )
             return {
                 "ok": False,
-                "message": f"VR 주문실행 중단: 오늘 이미 주문실행 이력 {sent_count}건이 있습니다.",
+                "message": f"VR 주문실행 중단: {query_day} 주문실행 이력 {sent_count}건이 있습니다.",
                 "order_executions": sent_rows,
             }
     finally:
@@ -2797,10 +2838,10 @@ def execute_vr_web_orders(
             sent_count = _successful_order_execution_count(
                 log_con, "vr", profile_name, query_day
             )
-            if sent_count:
+            if sent_count and not force_reorder:
                 return {
                     "ok": False,
-                    "message": f"VR 주문실행 중단: 오늘 이미 주문실행 이력 {sent_count}건이 있습니다.",
+                    "message": f"VR 주문실행 중단: {query_day} 주문실행 이력 {sent_count}건이 있습니다.",
                     "order_executions": _recent_order_execution_rows(
                         log_con, "vr", profile_name, query_day
                     ),
@@ -2821,9 +2862,10 @@ def execute_vr_web_orders(
         remaining_summary = _order_rows_side_summary(remaining_rows)
         execution_summary = _order_rows_side_summary(execution_rows)
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
+        action_label = "VR 재주문" if force_reorder else "VR 주문실행"
         return {
             "ok": True,
-            "message": f"VR 주문실행 완료: {len(successes)}건 / {token_state}",
+            "message": f"{action_label} 완료: {len(successes)}건 / 주문 실행일 {query_day} / {token_state}",
             "successes": successes,
             "order_executions": _order_executions_for_response(
                 username, "vr", profile_name, query_day
@@ -2853,7 +2895,9 @@ def execute_vr_web_orders(
         return {"ok": False, "message": f"VR 주문실행 실패: {exc}"}
 
 
-def execute_infinite_web_orders(username: str, profile_name: str) -> dict[str, Any]:
+def execute_infinite_web_orders(
+    username: str, profile_name: str, force_reorder: bool = False
+) -> dict[str, Any]:
     credentials = load_kiwoom_credentials(
         "infinite", profile_name, kiwoom_credentials_path(username)
     )
@@ -2873,7 +2917,7 @@ def execute_infinite_web_orders(username: str, profile_name: str) -> dict[str, A
         if basis_date != date.today():
             return {
                 "ok": False,
-                "message": f"무한매수법 주문실행 실패: 오늘 주문표만 실행할 수 있습니다. 현재 주문표 날짜: {basis_date}",
+                "message": f"무한매수법 주문실행 실패: 주문 실행일 {date.today()}에는 주문표 날짜 {basis_date}를 실행할 수 없습니다.",
             }
         plan = infinite_order_plan(con, setting)
     finally:
@@ -2884,13 +2928,13 @@ def execute_infinite_web_orders(username: str, profile_name: str) -> dict[str, A
         sent_count = _successful_order_execution_count(
             duplicate_con, "infinite", profile_name, basis_date
         )
-        if sent_count:
+        if sent_count and not force_reorder:
             sent_rows = _recent_order_execution_rows(
                 duplicate_con, "infinite", profile_name, basis_date
             )
             return {
                 "ok": False,
-                "message": f"무한매수법 주문실행 중단: 주문표 날짜 {basis_date}에 이미 주문실행 이력 {sent_count}건이 있습니다.",
+                "message": f"무한매수법 주문실행 중단: {basis_date} 주문실행 이력 {sent_count}건이 있습니다.",
                 "order_executions": sent_rows,
             }
     finally:
@@ -2909,10 +2953,10 @@ def execute_infinite_web_orders(username: str, profile_name: str) -> dict[str, A
             sent_count = _successful_order_execution_count(
                 log_con, "infinite", profile_name, basis_date
             )
-            if sent_count:
+            if sent_count and not force_reorder:
                 return {
                     "ok": False,
-                    "message": f"무한매수법 주문실행 중단: 주문표 날짜 {basis_date}에 이미 주문실행 이력 {sent_count}건이 있습니다.",
+                    "message": f"무한매수법 주문실행 중단: {basis_date} 주문실행 이력 {sent_count}건이 있습니다.",
                     "order_executions": _recent_order_execution_rows(
                         log_con, "infinite", profile_name, basis_date
                     ),
@@ -2929,9 +2973,10 @@ def execute_infinite_web_orders(username: str, profile_name: str) -> dict[str, A
         finally:
             log_con.close()
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
+        action_label = "무한매수법 재주문" if force_reorder else "무한매수법 주문실행"
         return {
             "ok": True,
-            "message": f"무한매수법 주문실행 완료: {len(successes)}건 / {token_state}",
+            "message": f"{action_label} 완료: {len(successes)}건 / 주문 실행일 {basis_date} / {token_state}",
             "successes": successes,
             "order_executions": _order_executions_for_response(
                 username, "infinite", profile_name, basis_date

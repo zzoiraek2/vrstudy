@@ -374,6 +374,7 @@
                 <section class="panel order-split-panel">
                   <div class="panel-header">
                     <h2>매수/매도점</h2>
+                    <button id="vr-reorder-orders" type="button" disabled>재주문</button>
                     <button id="vr-execute-orders" type="button" disabled>주문실행</button>
                   </div>
                   <div class="order-control-row">
@@ -571,8 +572,9 @@
               </section>
               <section class="panel">
                 <div class="panel-header">
-                  <h2>금일 주문표</h2>
+                  <h2>주문표</h2>
                   <button id="infinite-execute-after-input" type="button" disabled>체결입력 후 주문실행</button>
+                  <button id="infinite-reorder-orders" type="button" disabled>재주문</button>
                   <button id="infinite-execute-orders" type="button" disabled>주문실행</button>
                 </div>
                 <p id="infinite-order-message" class="message muted-message padded-message"></p>
@@ -697,6 +699,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260707_vr_cycle_flow"></script>
+    <script src="/assets/app.js?v=20260707_reorder_controls"></script>
   </body>
 </html>

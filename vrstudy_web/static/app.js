@@ -343,7 +343,7 @@ function renderInfiniteExecutionForm(data, onSubmit) {
   actions.className = "form-actions";
   const saveButton = document.createElement("button");
   saveButton.type = "submit";
-  saveButton.textContent = "체결 저장하고 금일 주문표 보기";
+  saveButton.textContent = "체결 저장하고 주문표 보기";
   saveButton.disabled = !data?.allowed;
   const message = document.createElement("p");
   message.className = "message muted-message";
@@ -1327,8 +1327,9 @@ function renderOrderResult(kind, result) {
   const executionRows = orderResultRows(result);
   const sentCount = executionRows.filter((row) => row.status !== "failed").length;
   const failedCount = executionRows.filter((row) => row.status === "failed").length;
+  const resultLabel = result?.history_only ? "이력" : (result?.ok ? "성공" : "실패");
   const summaryItems = [
-    ["결과", result ? (result.ok ? "성공" : "실패") : "-"],
+    ["결과", result ? resultLabel : "-"],
     ["주문건수", result ? `${sentCount}건` : "-"],
     ["실패", result ? `${failedCount}건` : "-"],
     ["메시지", result ? orderResultStatusText(result) : "아직 주문결과가 없습니다."],
@@ -1424,6 +1425,8 @@ function infiniteAfterInputReady() {
 function updateInfiniteOrderButtons() {
   const executeButton = document.getElementById("infinite-execute-orders");
   if (executeButton) executeButton.disabled = !state.infiniteDetail?.order_executable;
+  const reorderButton = document.getElementById("infinite-reorder-orders");
+  if (reorderButton) reorderButton.disabled = !state.infiniteDetail?.order_reorderable;
   const afterInputButton = document.getElementById("infinite-execute-after-input");
   if (afterInputButton) afterInputButton.disabled = !infiniteAfterInputReady();
 }
@@ -1454,15 +1457,33 @@ function vrOrderSummaryText(result) {
   ].join("\n");
 }
 
-async function executeVrOrders() {
+function confirmReorder(kind, detail) {
+  const orderDate = detail?.order_date || "-";
+  const count = (detail?.order_executions || []).filter((row) => row.status !== "failed").length;
+  const label = kind === "vr" ? "VR" : "무한매수법";
+  const typed = window.prompt([
+    `${label} ${orderDate} 주문실행 이력 ${count}건이 있습니다.`,
+    "재주문은 키움 REST API로 실제 주문 요청을 다시 전송합니다.",
+    "",
+    "재주문하려면 '재주문'을 입력하세요.",
+  ].join("\n"));
+  return typed === "재주문";
+}
+
+async function executeVrOrders(forceReorder = false) {
   const profile = state.selectedVr;
-  if (!profile || !state.vrDetail?.order_executable) return;
-  const options = vrOrderOptions();
+  if (!profile) return;
+  if (forceReorder) {
+    if (!state.vrDetail?.order_reorderable || !confirmReorder("vr", state.vrDetail)) return;
+  } else if (!state.vrDetail?.order_executable) {
+    return;
+  }
+  const options = { ...vrOrderOptions(), force_reorder: Boolean(forceReorder) };
   try {
     text("vr-order-message", "VR 주문표 미리보기 조회 중...");
     const preview = await api(`/api/kiwoom/vr/${encodeURIComponent(profile)}/order-preview`, {
       method: "POST",
-      body: JSON.stringify(options),
+      body: JSON.stringify(vrOrderOptions()),
     });
     state.vrOrderPreview = preview;
     renderVrOrderLevels(preview.order_rows || []);
@@ -1477,7 +1498,7 @@ async function executeVrOrders() {
       "확인을 누르면 키움 REST API로 실제 주문 요청을 전송합니다.",
       "현재차수 체결내역에서 같은 가격 체결 수량은 제외됩니다.",
     ].join("\n"))) return;
-    text("vr-order-message", "VR 주문실행 중...");
+    text("vr-order-message", forceReorder ? "VR 재주문 중..." : "VR 주문실행 중...");
     const result = await api(`/api/kiwoom/vr/${encodeURIComponent(profile)}/execute-orders`, {
       method: "POST",
       body: JSON.stringify(options),
@@ -1488,21 +1509,26 @@ async function executeVrOrders() {
   }
 }
 
-async function executeInfiniteOrders() {
+async function executeInfiniteOrders(forceReorder = false) {
   const profile = state.selectedInfinite;
-  if (!profile || !state.infiniteDetail?.order_executable) return;
+  if (!profile) return;
+  if (forceReorder) {
+    if (!state.infiniteDetail?.order_reorderable || !confirmReorder("infinite", state.infiniteDetail)) return;
+  } else if (!state.infiniteDetail?.order_executable) {
+    return;
+  }
   const message = [
-    "무한매수법 주문실행을 진행할까요?",
+    forceReorder ? "무한매수법 재주문을 진행할까요?" : "무한매수법 주문실행을 진행할까요?",
     "",
     "확인을 누르면 키움 REST API로 실제 주문 요청이 전송됩니다.",
-    "금일 주문표만 실행됩니다.",
+    "해당 주문 실행일의 주문표만 실행됩니다.",
   ].join("\n");
   if (!window.confirm(message)) return;
   try {
-    text("infinite-order-message", "무한매수법 주문실행 중...");
+    text("infinite-order-message", forceReorder ? "무한매수법 재주문 중..." : "무한매수법 주문실행 중...");
     const result = await api(`/api/kiwoom/infinite/${encodeURIComponent(profile)}/execute-orders`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ force_reorder: Boolean(forceReorder) }),
     });
     await refreshDetailAfterOrder("infinite", profile, "infinite-order-message", result);
   } catch (error) {
@@ -1517,7 +1543,7 @@ async function executeInfiniteAfterInput() {
   const preview = result.preview;
   const current = infiniteExecutionFormValues();
   if (state.infiniteDetail?.order_executable) {
-    text("infinite-order-message", "이미 금일 주문표가 있습니다. 주문실행 버튼을 사용하세요.");
+    text("infinite-order-message", "이미 해당 주문표가 있습니다. 주문실행 버튼을 사용하세요.");
     updateInfiniteOrderButtons();
     return;
   }
@@ -1562,7 +1588,7 @@ async function executeInfiniteAfterInput() {
         cash_flow_amount: Number(current.cash_flow_amount || 0),
       }),
     });
-    text("infinite-order-message", "금일 주문표 생성 후 주문실행 중...");
+    text("infinite-order-message", "주문표 생성 후 주문실행 중...");
     orderResult = await api(`/api/kiwoom/infinite/${encodeURIComponent(profile)}/execute-orders`, {
       method: "POST",
       body: "{}",
@@ -1702,11 +1728,14 @@ async function loadVrDetail(profileName) {
   updateVrSellOrderMode();
   const vrOrderButton = document.getElementById("vr-execute-orders");
   if (vrOrderButton) vrOrderButton.disabled = !detail.order_executable;
+  const vrReorderButton = document.getElementById("vr-reorder-orders");
+  if (vrReorderButton) vrReorderButton.disabled = !detail.order_reorderable;
   if (state.vrOrderResult) {
     renderOrderResult("vr", state.vrOrderResult);
   } else {
     renderOrderResult("vr", (detail.order_executions || []).length ? {
       ok: true,
+      history_only: true,
       message: detail.order_message || "최근 주문 이력",
       order_executions: detail.order_executions,
     } : null);
@@ -1773,6 +1802,7 @@ async function loadInfiniteDetail(profileName) {
   } else {
     renderOrderResult("infinite", (detail.order_executions || []).length ? {
       ok: true,
+      history_only: true,
       message: detail.order_message || "최근 주문 이력",
       order_executions: detail.order_executions,
     } : null);
@@ -1941,12 +1971,14 @@ document.getElementById("infinite-api-preview-call").addEventListener("click", l
 document.getElementById("infinite-balance-call").addEventListener("click", lookupInfiniteBalance);
 document.getElementById("vr-fill-previous").addEventListener("click", () => lookupVrFillHistory("previous"));
 document.getElementById("vr-fill-current").addEventListener("click", () => lookupVrFillHistory("current"));
-document.getElementById("vr-execute-orders").addEventListener("click", executeVrOrders);
+document.getElementById("vr-execute-orders").addEventListener("click", () => executeVrOrders(false));
+document.getElementById("vr-reorder-orders").addEventListener("click", () => executeVrOrders(true));
 document.getElementById("vr-sell-order-mode").addEventListener("change", updateVrSellOrderMode);
 document.getElementById("vr-sell-order-count").addEventListener("input", () => {
   state.vrOrderPreview = null;
 });
-document.getElementById("infinite-execute-orders").addEventListener("click", executeInfiniteOrders);
+document.getElementById("infinite-execute-orders").addEventListener("click", () => executeInfiniteOrders(false));
+document.getElementById("infinite-reorder-orders").addEventListener("click", () => executeInfiniteOrders(true));
 document.getElementById("infinite-execute-after-input").addEventListener("click", executeInfiniteAfterInput);
 document.getElementById("vr-api-form").addEventListener("submit", (event) => saveKiwoomForm("vr", event));
 document.getElementById("infinite-api-form").addEventListener("submit", (event) => saveKiwoomForm("infinite", event));

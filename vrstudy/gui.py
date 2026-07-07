@@ -2042,6 +2042,12 @@ class VrStudyApp(tk.Tk):
             details.append(f"return_code {exc.return_code}")
         if exc.return_msg:
             details.append(exc.return_msg)
+        error_message = str(exc.return_msg or exc or "")
+        if str(exc.return_code or "").strip() == "505531" or "주간거래" in error_message:
+            details.append(
+                "키움이 현재 시간대/주문유형을 지원하지 않아 거절했습니다. "
+                "정규장 주문 가능 시간에 다시 실행하거나 주문유형을 확인하세요."
+            )
         if exc.response_preview:
             details.append(f"response {exc.response_preview}")
         error_text = str(exc)
