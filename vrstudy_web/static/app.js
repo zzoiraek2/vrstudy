@@ -265,7 +265,6 @@ function renderSettingsForm(containerId, data, fields, onSubmit) {
   if (!container) return;
   container.innerHTML = "";
   const form = document.createElement("form");
-  form.id = "infinite-execution-form";
   form.className = "settings-form one-col embedded-settings-form";
   fields.forEach((field) => {
     const label = document.createElement("label");
@@ -1124,6 +1123,8 @@ async function saveVrSettings(payload) {
   await loadDashboard();
   await loadVrDetail(profile);
   await loadKiwoomForm("vr");
+  activateInnerPanel("vr-cycle-panel");
+  focusFormField("#vr-latest-input form", "close_price");
 }
 
 async function saveVrCycleInput(payload) {
@@ -1136,6 +1137,11 @@ async function saveVrCycleInput(payload) {
   await loadDashboard();
   await loadVrDetail(profile);
   text("vr-cycle-message", result.cycle_save?.message || "저장/재계산 완료");
+  if (result.cycle_save?.mode === "save") {
+    activateInnerPanel("vr-order-panel");
+  } else {
+    activateInnerPanel("vr-cycle-panel");
+  }
 }
 
 async function loadInfiniteProfiles() {

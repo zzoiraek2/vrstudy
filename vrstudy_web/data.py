@@ -9,7 +9,7 @@ from typing import Any
 import duckdb
 
 from .accounts import user_data_dir, user_db_path
-from vrstudy.db import next_id
+from vrstudy.db import init_db, next_id
 from vrstudy.core import CycleInput, cycle_dates, cycle_input_available_date, order_level_values
 from vrstudy.infinite import (
     INFINITE_SYMBOLS,
@@ -107,7 +107,9 @@ def _connect_readonly(db_path: Path) -> duckdb.DuckDBPyConnection | None:
 
 def _connect_writable(db_path: Path) -> duckdb.DuckDBPyConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    return duckdb.connect(str(db_path))
+    con = duckdb.connect(str(db_path))
+    init_db(con, db_path=db_path, profiles_dir=db_path.parent / "profiles")
+    return con
 
 
 def _tables(con: duckdb.DuckDBPyConnection) -> set[str]:
@@ -1226,7 +1228,9 @@ def vr_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
     }
     con = _connect_readonly(db_path)
     if con is None:
-        return detail
+        if not profile:
+            return detail
+        con = _connect_writable(db_path)
     try:
         tables = _tables(con)
         if "rebalance_snapshots" in tables:
