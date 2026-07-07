@@ -1346,6 +1346,7 @@ def vr_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
                     min_value,
                     max_value,
                     trade_amount,
+                    prior_pool,
                     pool,
                     principal,
                     account_total,
@@ -1499,10 +1500,19 @@ def update_vr_web_profile(
 ) -> dict[str, Any]:
     profiles_dir = user_data_dir(username) / "profiles" / "vr"
     current = _profile_from_data(_read_profile_file(user_data_dir(username), "vr", profile_name))
+    quantity_step_value = _payload_value(payload, "quantity_step", current.quantity_step)
+    if quantity_step_value is None:
+        quantity_step_value = current.quantity_step
+    start_week_no_value = int(_payload_value(payload, "start_week_no", current.start_week_no))
+    buy_limit_start_week_no_value = _payload_value(
+        payload, "buy_limit_start_week_no", start_week_no_value
+    )
+    if buy_limit_start_week_no_value is None:
+        buy_limit_start_week_no_value = start_week_no_value
     updated = update_profile(
         current,
         start_date=str(_payload_value(payload, "start_date", current.start_date)).strip(),
-        start_week_no=int(_payload_value(payload, "start_week_no", current.start_week_no)),
+        start_week_no=start_week_no_value,
         symbol=str(_payload_value(payload, "symbol", current.symbol)).strip(),
         account_number=str(
             _payload_value(payload, "account_number", current.account_number)
@@ -1515,6 +1525,8 @@ def update_vr_web_profile(
             _payload_value(payload, "initial_principal", current.initial_principal)
         ),
         initial_shares=int(_payload_value(payload, "initial_shares", current.initial_shares)),
+        quantity_step=int(quantity_step_value),
+        buy_limit_start_week_no=int(buy_limit_start_week_no_value),
     )
     if updated.min_ratio <= 0 or updated.max_ratio <= 0:
         raise ValueError("최소/최대 비율은 0보다 커야 합니다.")
@@ -1522,6 +1534,8 @@ def update_vr_web_profile(
         raise ValueError("최소 비율은 최대 비율보다 작아야 합니다.")
     if updated.initial_shares < 0:
         raise ValueError("초기 개수는 0 이상이어야 합니다.")
+    if updated.quantity_step <= 0:
+        raise ValueError("수량간격은 1 이상이어야 합니다.")
     save_profile(updated, profiles_dir)
     return asdict(updated)
 
@@ -1896,6 +1910,7 @@ def update_infinite_web_profile(
     con = _connect_writable(user_db_path(username))
     try:
         _save_infinite_setting_to_user_db(con, setting)
+        generate_infinite_rows(con, setting, through=max(setting.start_date, date.today()))
     finally:
         con.close()
     data = asdict(setting)

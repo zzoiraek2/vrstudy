@@ -40,13 +40,28 @@ async function api(path, options = {}) {
     let message = "요청을 처리하지 못했습니다.";
     try {
       const body = await response.json();
-      message = body.detail || message;
+      message = formatApiError(body.detail || body.message || message);
     } catch {
       // Keep the default message.
     }
     throw new Error(message);
   }
   return response.json();
+}
+
+function formatApiError(detail) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        const field = Array.isArray(item?.loc) ? item.loc.filter((part) => part !== "body").join(".") : "";
+        return [field, item?.msg].filter(Boolean).join(": ") || JSON.stringify(item);
+      })
+      .join("\n");
+  }
+  if (detail && typeof detail === "object") return JSON.stringify(detail);
+  return String(detail || "요청을 처리하지 못했습니다.");
 }
 
 function setVisible(view) {
@@ -236,6 +251,56 @@ function renderFields(containerId, data, fields) {
   });
 }
 
+function vrProfileSettingsPayload(profile, overrides = {}) {
+  return {
+    start_date: profile.start_date,
+    start_week_no: Number(profile.start_week_no || 2),
+    symbol: profile.symbol || "TQQQ",
+    account_number: profile.account_number || "",
+    min_ratio: Number(profile.min_ratio || 0),
+    max_ratio: Number(profile.max_ratio || 0),
+    initial_v: Number(profile.initial_v || 0),
+    initial_pool: Number(profile.initial_pool || 0),
+    initial_principal: Number(profile.initial_principal || 0),
+    initial_shares: Number(profile.initial_shares || 0),
+    quantity_step: Number(profile.quantity_step || 1),
+    buy_limit_start_week_no: Number(profile.buy_limit_start_week_no || profile.start_week_no || 2),
+    ...overrides,
+  };
+}
+
+function renderVrOrderOptions(profile) {
+  const input = document.getElementById("vr-quantity-step");
+  const button = document.getElementById("vr-save-quantity-step");
+  if (input) input.value = profile.quantity_step ?? 1;
+  if (button) button.disabled = false;
+}
+
+function renderVrOrderBasisSummary(detail) {
+  const basis = detail?.order_basis || {};
+  const sourceCycleNo = Number(basis.source_cycle_no);
+  const source = (detail?.snapshots || []).find((row) => Number(row.cycle_no) === sourceCycleNo) || {};
+  renderFields("vr-summary", { source, basis }, [
+    ["기준 차수/주차", "basis", () => (
+      source.cycle_no !== undefined && basis.cycle_no !== undefined
+        ? `${source.cycle_no}차 ${source.week_no}주차 → ${basis.cycle_no}차 ${basis.week_no}주차`
+        : "-"
+    )],
+    ["주문표 효력기간", "basis", () => (
+      basis.start_date && basis.end_date ? `${basis.start_date} ~ ${basis.end_date}` : "-"
+    )],
+    ["이전 주차 V", "source", () => number(source.v)],
+    ["이전 주차 배당금", "source", () => number(source.dividend)],
+    ["이전 주차 처음 Pool", "source", () => number(source.prior_pool)],
+    ["이전 주차 마지막 Pool", "source", () => number(source.pool)],
+    ["금번 주차 G", "basis", () => number(basis.g)],
+    ["금번 주차 V", "basis", () => number(basis.v)],
+    ["금번 최소밴드값", "basis", () => number(basis.min_value)],
+    ["금번 최대밴드값", "basis", () => number(basis.max_value)],
+    ["금번 처음 Pool", "basis", () => number(basis.prior_pool)],
+  ]);
+}
+
 function settingValue(data, key, formatter) {
   const value = data?.[key];
   if (formatter) return formatter(value);
@@ -251,11 +316,12 @@ function percentInput(value) {
 
 function parseInputValue(value, kind) {
   const text = String(value ?? "").trim();
-  if (kind === "int") return Number.parseInt(text || "0", 10);
-  if (kind === "float") return Number(text || "0");
+  const numericText = text.replace(/,/g, "");
+  if (kind === "int") return Number.parseInt(numericText || "0", 10);
+  if (kind === "float") return Number(numericText || "0");
   if (kind === "percent") {
-    if (text.endsWith("%")) return Number(text.slice(0, -1).trim() || "0") / 100;
-    return Number(text || "0");
+    if (numericText.endsWith("%")) return Number(numericText.slice(0, -1).trim() || "0") / 100;
+    return Number(numericText || "0");
   }
   return text;
 }
@@ -398,10 +464,22 @@ function renderVrCycleInputForm(data, onSubmit) {
     input.name = field.name;
     input.type = "text";
     input.value = data?.[field.name] ?? "";
-    if (field.readonly) input.readOnly = true;
+    if (field.readonly) {
+      input.readOnly = true;
+      input.tabIndex = -1;
+      input.className = "computed-input";
+    }
     label.append(caption, input);
     form.appendChild(label);
   });
+  const updateComputedWeekNo = () => {
+    const cycleNo = Number.parseInt(String(form.elements.cycle_no?.value || "0").replace(/,/g, ""), 10);
+    const startWeekNo = Number(state.vrDetail?.profile?.start_week_no || 2);
+    const weekInput = form.elements.week_no;
+    if (!weekInput || !Number.isFinite(cycleNo)) return;
+    weekInput.value = String(startWeekNo + (cycleNo - 1) * 2);
+  };
+  form.elements.cycle_no?.addEventListener("input", updateComputedWeekNo);
   const actions = document.createElement("div");
   actions.className = "form-actions";
   const saveButton = document.createElement("button");
@@ -1118,13 +1196,27 @@ async function saveVrSettings(payload) {
   if (!profile) return;
   await api(`/api/vr/profiles/${encodeURIComponent(profile)}`, {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(vrProfileSettingsPayload(state.vrDetail?.profile || {}, payload)),
   });
   await loadDashboard();
   await loadVrDetail(profile);
   await loadKiwoomForm("vr");
   activateInnerPanel("vr-cycle-panel");
   focusFormField("#vr-latest-input form", "close_price");
+}
+
+async function saveVrQuantityStep(quantityStep) {
+  const profile = state.selectedVr;
+  if (!profile) return;
+  await api(`/api/vr/profiles/${encodeURIComponent(profile)}`, {
+    method: "PUT",
+    body: JSON.stringify(vrProfileSettingsPayload(state.vrDetail?.profile || {}, {
+      quantity_step: quantityStep,
+    })),
+  });
+  state.vrOrderPreview = null;
+  await loadDashboard();
+  await loadVrDetail(profile);
 }
 
 async function saveVrCycleInput(payload) {
@@ -1707,25 +1799,15 @@ async function loadVrDetail(profileName) {
     { name: "initial_shares", label: "초기 개수", kind: "int" },
   ], saveVrSettings);
   renderVrCycleInputForm(detail.cycle_input || {}, saveVrCycleInput);
-  renderFields("vr-order-options", profile, [
-    ["수량간격", "quantity_step", number],
-    ["매수한도", "buy_limit_ratio", pct],
-    ["매수한도 시작주차", "buy_limit_start_week_no", number],
-  ]);
+  renderVrOrderOptions(profile);
   renderVrPeriodPreview({});
   text("vr-api-period-message", "");
-  renderFields("vr-summary", detail.snapshots?.[0] || {}, [
-    ["차수", "cycle_no"],
-    ["G", "g", number],
-    ["최소값", "min_value", number],
-    ["최대값", "max_value", number],
-    ["수익", "profit", number],
-    ["평단", "avg_cost", number],
-  ]);
+  renderVrOrderBasisSummary(detail);
   const snapshots = visibleVrSnapshots(detail);
   text("vr-snapshot-count", `${snapshots.length}개`);
-  rows("vr-snapshots", snapshots, 11, (row) => [
+  rows("vr-snapshots", snapshots, 12, (row) => [
     row.cycle_no,
+    row.week_no,
     row.start_date,
     row.end_date,
     row.status,
@@ -1993,6 +2075,27 @@ document.getElementById("vr-reorder-orders").addEventListener("click", () => exe
 document.getElementById("vr-sell-order-mode").addEventListener("change", updateVrSellOrderMode);
 document.getElementById("vr-sell-order-count").addEventListener("input", () => {
   state.vrOrderPreview = null;
+});
+document.getElementById("vr-quantity-step-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = document.getElementById("vr-quantity-step");
+  const button = document.getElementById("vr-save-quantity-step");
+  const quantityStep = Number.parseInt(input?.value || "0", 10);
+  if (!Number.isFinite(quantityStep) || quantityStep <= 0) {
+    text("vr-order-message", "수량간격은 1 이상이어야 합니다.");
+    input?.focus();
+    return;
+  }
+  try {
+    if (button) button.disabled = true;
+    text("vr-order-message", "수량간격 저장 중...");
+    await saveVrQuantityStep(quantityStep);
+    text("vr-order-message", "수량간격 저장/주문표 재계산 완료");
+  } catch (error) {
+    text("vr-order-message", error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
 });
 document.getElementById("infinite-execute-orders").addEventListener("click", () => executeInfiniteOrders(false));
 document.getElementById("infinite-reorder-orders").addEventListener("click", () => executeInfiniteOrders(true));

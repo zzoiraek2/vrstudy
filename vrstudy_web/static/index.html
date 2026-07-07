@@ -240,7 +240,6 @@
               <nav class="inner-tabs" data-group="vr">
                 <button class="inner-tab active" type="button" data-panel="vr-settings-panel">설정</button>
                 <button class="inner-tab" type="button" data-panel="vr-cycle-panel">주차별 입력</button>
-                <button class="inner-tab" type="button" data-panel="vr-order-panel">매수/매도점</button>
                 <button class="inner-tab" type="button" data-panel="vr-api-panel">API</button>
                 <button class="inner-tab" type="button" data-panel="vr-fill-panel">체결내역</button>
               </nav>
@@ -257,16 +256,6 @@
                   <div class="panel-header"><h2>주차별 입력</h2></div>
                   <div id="vr-latest-input"></div>
                   <p id="vr-cycle-message" class="message muted-message padded-message"></p>
-                </section>
-              </section>
-
-              <section id="vr-order-panel" class="inner-panel">
-                <section class="panel compact-panel">
-                  <div class="panel-header"><h2>매수/매도점 보기 옵션</h2></div>
-                  <div class="readonly-form single" id="vr-order-options"></div>
-                  <div class="form-actions padded-actions">
-                    <button type="button" disabled>매수/매도점 다시 계산</button>
-                  </div>
                 </section>
               </section>
 
@@ -349,6 +338,7 @@
                     <thead>
                       <tr>
                         <th>차수</th>
+                        <th>주차</th>
                         <th>시작일</th>
                         <th>종료일</th>
                         <th>상태</th>
@@ -368,7 +358,7 @@
 
               <div class="right-grid">
                 <section class="panel calculation-panel">
-                  <div class="panel-header"><h2>선택 행 계산 근거</h2></div>
+                  <div class="panel-header"><h2>주문표 계산 근거</h2></div>
                   <div class="readonly-form single" id="vr-summary"></div>
                 </section>
                 <section class="panel order-split-panel">
@@ -389,6 +379,13 @@
                       <span>매도행 수</span>
                       <input id="vr-sell-order-count" type="number" min="0" max="500" value="0" disabled />
                     </label>
+                    <form id="vr-quantity-step-form" class="order-inline-form">
+                      <label>
+                        <span>수량간격</span>
+                        <input id="vr-quantity-step" name="quantity_step" type="number" min="1" step="1" />
+                      </label>
+                      <button id="vr-save-quantity-step" type="submit">저장</button>
+                    </form>
                   </div>
                   <p id="vr-order-message" class="message muted-message padded-message"></p>
                   <nav class="order-panel-tabs" data-order-tabs="vr">

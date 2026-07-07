@@ -132,6 +132,20 @@ input:focus {
   border-color: var(--accent);
 }
 
+input[readonly],
+.computed-input {
+  border-color: #d5d7d1;
+  background: #f4f5f0;
+  color: var(--muted);
+  cursor: default;
+}
+
+input[readonly]:focus,
+.computed-input:focus {
+  outline: none;
+  border-color: #d5d7d1;
+}
+
 .message {
   min-height: 18px;
   margin: 0;
@@ -392,21 +406,35 @@ input:focus {
 
 .order-control-row {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) minmax(110px, 140px);
+  grid-template-columns: minmax(180px, 240px) minmax(110px, 140px) minmax(220px, 360px);
   gap: 8px;
   padding: 8px;
   border-bottom: 1px solid var(--line);
   background: #fafbf8;
 }
 
-.order-control-row label {
+.order-control-row label,
+.order-inline-form label {
   display: grid;
   gap: 4px;
 }
 
-.order-control-row span {
+.order-control-row span,
+.order-inline-form span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.order-inline-form {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto;
+  align-items: end;
+  gap: 6px;
+}
+
+.order-inline-form button {
+  min-width: 62px;
+  padding: 0 10px;
 }
 
 .split-order-tables {

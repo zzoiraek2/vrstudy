@@ -102,6 +102,8 @@ class VrProfileSettingsRequest(BaseModel):
     initial_pool: float = 0.0
     initial_principal: float = 0.0
     initial_shares: int = 0
+    quantity_step: int | None = None
+    buy_limit_start_week_no: int | None = None
 
 
 class InfiniteProfileSettingsRequest(BaseModel):
