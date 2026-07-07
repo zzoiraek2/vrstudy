@@ -7,8 +7,10 @@ const state = {
   profileCreateKind: "",
   vrDetail: null,
   vrOrderPreview: null,
+  vrOrderResult: null,
   infiniteDetail: null,
   infiniteExecutionPreview: null,
+  infiniteOrderResult: null,
   dashboardCharts: {
     vrProfile: "",
     infiniteProfile: "",
@@ -1255,18 +1257,147 @@ function orderResultText(result) {
     lines.push(...result.successes);
   }
   if (result.order_executions && result.order_executions.length) {
-    lines.push("이미 전송된 주문:");
+    lines.push("최근 주문 이력:");
     result.order_executions.slice(0, 10).forEach((row, index) => {
       const price = row.price == null ? "시장가" : number(row.price);
       const orderNo = row.order_no || "-";
-      lines.push(
-        `${index + 1}. ${row.side_label || ""} ${row.quantity || 0}주 ${price} ${
-          row.order_type || ""
-        } 주문번호 ${orderNo}`.trim()
-      );
+      const status = row.status === "failed" ? "실패" : "전송";
+      const parts = [
+        `${index + 1}. [${status}]`,
+        row.side_label || "",
+        `${row.quantity || 0}주`,
+        price,
+        row.order_type || "",
+        row.status === "failed" ? row.message || "" : `주문번호 ${orderNo}`,
+      ];
+      lines.push(parts.filter(Boolean).join(" ").trim());
     });
   }
   return lines.join("\n");
+}
+
+function orderResultStatusText(result) {
+  if (!result) return "";
+  return result.message || (result.ok ? "주문실행 완료" : "주문실행 실패");
+}
+
+function activateOrderPanel(kind, panelName) {
+  const group = document.querySelector(`[data-order-tabs="${kind}"]`);
+  if (!group) return;
+  group.querySelectorAll(".order-panel-tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.orderPanel === panelName);
+  });
+  const host = group.closest(".panel");
+  if (!host) return;
+  host.querySelectorAll(".order-panel-page").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === panelName);
+  });
+}
+
+function orderResultRows(result) {
+  const executions = result?.order_executions || [];
+  if (executions.length) return executions;
+  return (result?.successes || []).map((message, index) => ({
+    status: result?.ok ? "sent" : "failed",
+    side_label: "",
+    order_type: "",
+    price: "",
+    quantity: "",
+    order_no: "",
+    message: message || `${index + 1}. 주문 처리`,
+  }));
+}
+
+function statusLabel(status) {
+  if (status === "sent") return "전송";
+  if (status === "failed") return "실패";
+  return status || "-";
+}
+
+function renderOrderResult(kind, result) {
+  const summary = document.getElementById(`${kind}-order-result-summary`);
+  const tbody = document.getElementById(`${kind}-order-result-rows`);
+  if (!summary || !tbody) return;
+  const executionRows = orderResultRows(result);
+  const sentCount = executionRows.filter((row) => row.status !== "failed").length;
+  const failedCount = executionRows.filter((row) => row.status === "failed").length;
+  const summaryItems = [
+    ["결과", result ? (result.ok ? "성공" : "실패") : "-"],
+    ["주문건수", result ? `${sentCount}건` : "-"],
+    ["실패", result ? `${failedCount}건` : "-"],
+    ["메시지", result ? orderResultStatusText(result) : "아직 주문결과가 없습니다."],
+  ];
+  summary.innerHTML = "";
+  summaryItems.forEach(([label, value]) => {
+    const item = document.createElement("div");
+    const labelNode = document.createElement("span");
+    const valueNode = document.createElement("strong");
+    labelNode.textContent = label;
+    valueNode.textContent = value;
+    item.append(labelNode, valueNode);
+    summary.appendChild(item);
+  });
+  if (!result) {
+    renderEmpty(tbody, 7);
+    return;
+  }
+  if (!executionRows.length) {
+    rows(`${kind}-order-result-rows`, [{
+      status: result.ok ? "sent" : "failed",
+      side_label: "",
+      order_type: "",
+      price: "",
+      quantity: "",
+      order_no: "",
+      message: orderResultStatusText(result),
+    }], 7, (row) => [
+      statusLabel(row.status),
+      row.side_label,
+      row.order_type,
+      row.price == null || row.price === "" ? "-" : number(row.price),
+      row.quantity || "-",
+      row.order_no || "-",
+      row.message || "-",
+    ]);
+    return;
+  }
+  rows(`${kind}-order-result-rows`, executionRows, 7, (row) => [
+    statusLabel(row.status),
+    row.side_label,
+    row.order_type,
+    row.price == null || row.price === "" ? "시장가" : number(row.price),
+    row.quantity || "-",
+    row.order_no || "-",
+    row.message || "-",
+  ]);
+}
+
+function setOrderResult(kind, result, activate = true) {
+  if (kind === "vr") {
+    state.vrOrderResult = result;
+  } else {
+    state.infiniteOrderResult = result;
+  }
+  renderOrderResult(kind, result);
+  text(`${kind}-order-message`, orderResultStatusText(result));
+  if (activate) activateOrderPanel(kind, `${kind}-order-result-panel`);
+}
+
+async function refreshDetailAfterOrder(kind, profile, messageId, result) {
+  setOrderResult(kind, result);
+  try {
+    if (kind === "vr") {
+      await loadVrDetail(profile);
+    } else {
+      await loadInfiniteDetail(profile);
+    }
+    setOrderResult(kind, result);
+  } catch (error) {
+    setOrderResult(kind, {
+      ...result,
+      message: `${orderResultStatusText(result)} / 상세 새로고침 실패: ${error.message}`,
+    });
+  }
 }
 
 function infiniteExecutionFormValues() {
@@ -1321,37 +1452,34 @@ async function executeVrOrders() {
   const profile = state.selectedVr;
   if (!profile || !state.vrDetail?.order_executable) return;
   const options = vrOrderOptions();
-  text("vr-order-message", "VR 주문표 미리보기 조회 중...");
-  const preview = await api(`/api/kiwoom/vr/${encodeURIComponent(profile)}/order-preview`, {
-    method: "POST",
-    body: JSON.stringify(options),
-  });
-  state.vrOrderPreview = preview;
-  renderVrOrderLevels(preview.order_rows || []);
-  text("vr-order-message", preview.message || (preview.ok ? "VR 주문표 미리보기 완료" : "VR 주문표 미리보기 실패"));
-  if (!preview.ok || !(preview.order_rows || []).length) return;
-  await new Promise((resolve) => window.requestAnimationFrame(resolve));
-  const message = [
-    "VR 주문실행을 진행할까요?",
-    "",
-    "확인을 누르면 키움 REST API로 실제 주문 요청이 전송됩니다.",
-    "현재차수 체결내역을 조회해서 동일 가격 체결 수량은 제외합니다.",
-  ].join("\n");
-  if (!window.confirm([
-    "아래 VR 주문표 그대로 주문하시겠습니까?",
-    "",
-    vrOrderSummaryText(preview),
-    "",
-    "확인을 누르면 키움 REST API로 실제 주문 요청을 전송합니다.",
-    "현재차수 체결내역에서 같은 가격 체결 수량은 제외됩니다.",
-  ].join("\n"))) return;
-  text("vr-order-message", "VR 주문실행 중...");
-  const result = await api(`/api/kiwoom/vr/${encodeURIComponent(profile)}/execute-orders`, {
-    method: "POST",
-    body: JSON.stringify(options),
-  });
-  await loadVrDetail(profile);
-  text("vr-order-message", orderResultText(result));
+  try {
+    text("vr-order-message", "VR 주문표 미리보기 조회 중...");
+    const preview = await api(`/api/kiwoom/vr/${encodeURIComponent(profile)}/order-preview`, {
+      method: "POST",
+      body: JSON.stringify(options),
+    });
+    state.vrOrderPreview = preview;
+    renderVrOrderLevels(preview.order_rows || []);
+    text("vr-order-message", preview.message || (preview.ok ? "VR 주문표 미리보기 완료" : "VR 주문표 미리보기 실패"));
+    if (!preview.ok || !(preview.order_rows || []).length) return;
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    if (!window.confirm([
+      "아래 VR 주문표 그대로 주문하시겠습니까?",
+      "",
+      vrOrderSummaryText(preview),
+      "",
+      "확인을 누르면 키움 REST API로 실제 주문 요청을 전송합니다.",
+      "현재차수 체결내역에서 같은 가격 체결 수량은 제외됩니다.",
+    ].join("\n"))) return;
+    text("vr-order-message", "VR 주문실행 중...");
+    const result = await api(`/api/kiwoom/vr/${encodeURIComponent(profile)}/execute-orders`, {
+      method: "POST",
+      body: JSON.stringify(options),
+    });
+    await refreshDetailAfterOrder("vr", profile, "vr-order-message", result);
+  } catch (error) {
+    setOrderResult("vr", { ok: false, message: `VR 주문실행 실패: ${error.message}` });
+  }
 }
 
 async function executeInfiniteOrders() {
@@ -1364,13 +1492,16 @@ async function executeInfiniteOrders() {
     "금일 주문표만 실행됩니다.",
   ].join("\n");
   if (!window.confirm(message)) return;
-  text("infinite-order-message", "무한매수법 주문실행 중...");
-  const result = await api(`/api/kiwoom/infinite/${encodeURIComponent(profile)}/execute-orders`, {
-    method: "POST",
-    body: "{}",
-  });
-  await loadInfiniteDetail(profile);
-  text("infinite-order-message", orderResultText(result));
+  try {
+    text("infinite-order-message", "무한매수법 주문실행 중...");
+    const result = await api(`/api/kiwoom/infinite/${encodeURIComponent(profile)}/execute-orders`, {
+      method: "POST",
+      body: "{}",
+    });
+    await refreshDetailAfterOrder("infinite", profile, "infinite-order-message", result);
+  } catch (error) {
+    setOrderResult("infinite", { ok: false, message: `무한매수법 주문실행 실패: ${error.message}` });
+  }
 }
 
 async function executeInfiniteAfterInput() {
@@ -1412,26 +1543,44 @@ async function executeInfiniteAfterInput() {
     "확인을 누르면 체결입력을 저장한 뒤 키움 REST API로 실제 주문 요청이 전송됩니다.",
   ].join("\n");
   if (!window.confirm(message)) return;
-  text("infinite-order-message", "체결입력 저장 중...");
-  await api(`/api/infinite/profiles/${encodeURIComponent(profile)}/execution`, {
-    method: "POST",
-    body: JSON.stringify({
-      trade_date: preview.trade_date,
-      avg_price: Number(preview.avg_price),
-      buy_qty: Number(preview.buy_qty || 0),
-      sell_qty: Number(preview.sell_qty || 0),
-      cash_flow_amount: Number(current.cash_flow_amount || 0),
-    }),
-  });
-  text("infinite-order-message", "금일 주문표 생성 후 주문실행 중...");
-  const orderResult = await api(`/api/kiwoom/infinite/${encodeURIComponent(profile)}/execute-orders`, {
-    method: "POST",
-    body: "{}",
-  });
-  state.infiniteExecutionPreview = null;
-  await loadDashboard();
-  await loadInfiniteDetail(profile);
-  text("infinite-order-message", orderResultText(orderResult));
+  let orderResult = null;
+  try {
+    text("infinite-order-message", "체결입력 저장 중...");
+    await api(`/api/infinite/profiles/${encodeURIComponent(profile)}/execution`, {
+      method: "POST",
+      body: JSON.stringify({
+        trade_date: preview.trade_date,
+        avg_price: Number(preview.avg_price),
+        buy_qty: Number(preview.buy_qty || 0),
+        sell_qty: Number(preview.sell_qty || 0),
+        cash_flow_amount: Number(current.cash_flow_amount || 0),
+      }),
+    });
+    text("infinite-order-message", "금일 주문표 생성 후 주문실행 중...");
+    orderResult = await api(`/api/kiwoom/infinite/${encodeURIComponent(profile)}/execute-orders`, {
+      method: "POST",
+      body: "{}",
+    });
+    state.infiniteExecutionPreview = null;
+    setOrderResult("infinite", orderResult);
+    try {
+      await loadDashboard();
+      await loadInfiniteDetail(profile);
+    } catch (error) {
+      setOrderResult("infinite", {
+        ...orderResult,
+        message: `${orderResultStatusText(orderResult)} / 상세 새로고침 실패: ${error.message}`,
+      });
+      return;
+    }
+    setOrderResult("infinite", orderResult);
+  } catch (error) {
+    setOrderResult("infinite", {
+      ...(orderResult || {}),
+      ok: false,
+      message: `${orderResult ? `${orderResultStatusText(orderResult)} / ` : ""}체결입력 후 주문실행 실패: ${error.message}`,
+    });
+  }
 }
 
 function vrCycleRecalculateData(row) {
@@ -1485,9 +1634,11 @@ function visibleInfiniteRows(detail) {
 }
 
 async function loadVrDetail(profileName) {
+  const profileChanged = state.selectedVr && state.selectedVr !== profileName;
   state.selectedVr = profileName;
   state.vrDetail = null;
   state.vrOrderPreview = null;
+  if (profileChanged) state.vrOrderResult = null;
   document.getElementById("vr-profile-select").value = profileName;
   const detail = await api(`/api/vr/profiles/${encodeURIComponent(profileName)}`);
   state.vrDetail = detail;
@@ -1545,15 +1696,27 @@ async function loadVrDetail(profileName) {
   updateVrSellOrderMode();
   const vrOrderButton = document.getElementById("vr-execute-orders");
   if (vrOrderButton) vrOrderButton.disabled = !detail.order_executable;
-  text("vr-order-message", detail.order_message || "");
+  if (state.vrOrderResult) {
+    renderOrderResult("vr", state.vrOrderResult);
+  } else {
+    renderOrderResult("vr", (detail.order_executions || []).length ? {
+      ok: true,
+      message: detail.order_message || "최근 주문 이력",
+      order_executions: detail.order_executions,
+    } : null);
+    activateOrderPanel("vr", "vr-order-plan-panel");
+    text("vr-order-message", detail.order_message || "");
+  }
   renderEmpty(document.getElementById("vr-fill-history"), 5);
   text("vr-fill-message", "");
 }
 
 async function loadInfiniteDetail(profileName) {
+  const profileChanged = state.selectedInfinite && state.selectedInfinite !== profileName;
   state.selectedInfinite = profileName;
   state.infiniteDetail = null;
   state.infiniteExecutionPreview = null;
+  if (profileChanged) state.infiniteOrderResult = null;
   document.getElementById("infinite-profile-select").value = profileName;
   const detail = await api(`/api/infinite/profiles/${encodeURIComponent(profileName)}`);
   state.infiniteDetail = detail;
@@ -1599,7 +1762,17 @@ async function loadInfiniteDetail(profileName) {
   ]);
   renderInfiniteOrderPlan(detail.order_plan);
   updateInfiniteOrderButtons();
-  text("infinite-order-message", detail.order_message || "");
+  if (state.infiniteOrderResult) {
+    renderOrderResult("infinite", state.infiniteOrderResult);
+  } else {
+    renderOrderResult("infinite", (detail.order_executions || []).length ? {
+      ok: true,
+      message: detail.order_message || "최근 주문 이력",
+      order_executions: detail.order_executions,
+    } : null);
+    activateOrderPanel("infinite", "infinite-order-plan-panel");
+    text("infinite-order-message", detail.order_message || "");
+  }
 }
 
 async function loadKiwoomForm(kind) {
@@ -1696,6 +1869,15 @@ document.querySelectorAll(".inner-tabs").forEach((group) => {
       const parent = group.parentElement;
       parent.querySelectorAll(".inner-panel").forEach((panel) => panel.classList.remove("active"));
       document.getElementById(button.dataset.panel).classList.add("active");
+    });
+  });
+});
+
+document.querySelectorAll(".order-panel-tabs").forEach((group) => {
+  const kind = group.dataset.orderTabs;
+  group.querySelectorAll(".order-panel-tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      activateOrderPanel(kind, button.dataset.orderPanel);
     });
   });
 });

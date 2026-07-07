@@ -82,6 +82,17 @@ from vrstudy.telegram import (
 def _json_value(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
+    if isinstance(value, str):
+        return value.encode("utf-8", "replace").decode("utf-8")
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _json_value(str(key)): _json_value(item)
+            for key, item in value.items()
+        }
     return value
 
 
@@ -241,13 +252,16 @@ def _recent_order_execution_rows(
             order_type,
             price,
             quantity,
+            stex_tp,
+            trde_tp,
+            status,
             order_no,
             message
         FROM web_order_executions
         WHERE strategy = ?
           AND profile_name = ?
           AND order_date = ?
-          AND status = 'sent'
+          AND status IN ('sent', 'failed')
         ORDER BY id DESC
         LIMIT ?
         """,
@@ -317,6 +331,41 @@ def _record_order_execution(
     )
 
 
+def _kiwoom_error_hint(exc: KiwoomApiError) -> str:
+    code = str(exc.return_code or "").strip()
+    message = str(exc.return_msg or exc or "")
+    if code == "505531" or "주간거래" in message:
+        return "키움이 현재 시간대/주문유형을 지원하지 않아 거절했습니다. 정규장 주문 가능 시간에 다시 실행하거나 주문유형을 확인하세요."
+    return ""
+
+
+def _order_failure_message(exc: Exception) -> str:
+    if isinstance(exc, KiwoomApiError):
+        details = []
+        if exc.return_code is not None:
+            details.append(f"return_code {exc.return_code}")
+        if exc.return_msg:
+            details.append(exc.return_msg)
+        hint = _kiwoom_error_hint(exc)
+        if hint:
+            details.append(hint)
+        if details:
+            return " / ".join(str(item) for item in details)
+    return str(exc)
+
+
+def _order_executions_for_response(
+    username: str, strategy: str, profile_name: str, order_date: date | str
+) -> list[dict[str, Any]]:
+    con = _connect_readonly(user_db_path(username))
+    if con is None:
+        return []
+    try:
+        return _recent_order_execution_rows(con, strategy, profile_name, order_date)
+    finally:
+        con.close()
+
+
 def _read_profile_files(
     base_dir: Path, kind: str = "vr", include_default: bool = False
 ) -> list[dict[str, Any]]:
@@ -339,7 +388,7 @@ def _read_profile_files(
         item["profile_no"] = raw.get("profile_no")
         item["calculation_paused"] = bool(raw.get("calculation_paused", False))
         item["file"] = path.name
-        profiles.append(item)
+        profiles.append(_json_value(item))
     return profiles
 
 
@@ -354,7 +403,7 @@ def _read_profile_file(base_dir: Path, kind: str, profile_name: str) -> dict[str
             continue
         if str(raw.get("name") or path.stem) == profile_name:
             raw["file"] = path.name
-            return raw
+            return _json_value(raw)
     return {}
 
 
@@ -695,6 +744,9 @@ def _format_kiwoom_error(prefix: str, exc: KiwoomApiError) -> str:
         details.append(f"return_code {exc.return_code}")
     if exc.return_msg:
         details.append(exc.return_msg)
+    hint = _kiwoom_error_hint(exc)
+    if hint:
+        details.append(hint)
     if exc.response_preview:
         details.append(f"response {exc.response_preview}")
     error_text = str(exc)
@@ -2329,7 +2381,7 @@ def _execute_us_order_rows(
                     row,
                     "failed",
                     None,
-                    str(exc),
+                    _order_failure_message(exc),
                 )
             raise
         ord_no = result.get("ord_no") or result.get("odno") or "-"
@@ -2769,6 +2821,9 @@ def execute_vr_web_orders(
             "ok": True,
             "message": f"VR 주문실행 완료: {len(successes)}건 / {token_state}",
             "successes": successes,
+            "order_executions": _order_executions_for_response(
+                username, "vr", profile_name, query_day
+            ),
             "summary": {
                 "original": original_summary,
                 "deducted": deducted_summary,
@@ -2786,6 +2841,9 @@ def execute_vr_web_orders(
             "message": _format_kiwoom_error("VR 주문실행 실패", exc),
             "return_code": exc.return_code,
             "return_msg": exc.return_msg,
+            "order_executions": _order_executions_for_response(
+                username, "vr", profile_name, query_day
+            ),
         }
     except Exception as exc:
         return {"ok": False, "message": f"VR 주문실행 실패: {exc}"}
@@ -2871,6 +2929,9 @@ def execute_infinite_web_orders(username: str, profile_name: str) -> dict[str, A
             "ok": True,
             "message": f"무한매수법 주문실행 완료: {len(successes)}건 / {token_state}",
             "successes": successes,
+            "order_executions": _order_executions_for_response(
+                username, "infinite", profile_name, basis_date
+            ),
         }
     except KiwoomApiError as exc:
         return {
@@ -2878,6 +2939,9 @@ def execute_infinite_web_orders(username: str, profile_name: str) -> dict[str, A
             "message": _format_kiwoom_error("무한매수법 주문실행 실패", exc),
             "return_code": exc.return_code,
             "return_msg": exc.return_msg,
+            "order_executions": _order_executions_for_response(
+                username, "infinite", profile_name, basis_date
+            ),
         }
     except Exception as exc:
         return {"ok": False, "message": f"무한매수법 주문실행 실패: {exc}"}
