@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 import certifi
 
-from .paths import app_data_dir, runtime_base_dir
+from .paths import app_data_dir, restrict_private_file, runtime_base_dir
 
 
 @dataclass(frozen=True)
@@ -112,6 +112,7 @@ def save_telegram_settings(
         json.dumps(asdict(settings), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    restrict_private_file(path)
     return path
 
 

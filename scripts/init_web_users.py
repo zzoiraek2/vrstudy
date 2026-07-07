@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from vrstudy.paths import runtime_base_dir
+from vrstudy.paths import restrict_private_file, runtime_base_dir
 from vrstudy_web.accounts import DEFAULT_USERS, user_data_dir, users_path
 from vrstudy_web.security import hash_password
 
@@ -52,6 +52,7 @@ def main() -> None:
         json.dumps({"users": records}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    restrict_private_file(path)
 
     for username in DEFAULT_USERS:
         user_data_dir(username)

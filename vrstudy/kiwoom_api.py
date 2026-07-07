@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 import certifi
 
 from .kiwoom_credentials import KiwoomCredentials
-from .paths import app_data_dir
+from .paths import app_data_dir, restrict_private_file
 
 
 KIWOOM_PROD_HOST = "https://api.kiwoom.com"
@@ -695,6 +695,7 @@ def save_token_cache(data: dict, path: Path | None = None) -> Path:
         json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    restrict_private_file(path)
     return path
 
 

@@ -65,7 +65,9 @@ from .infinite import (
     latest_fx_rate,
     list_infinite_profile_names,
     load_infinite_setting,
+    next_us_trading_day,
     order_basis_row,
+    previous_us_trading_day,
     rename_infinite_profile_records,
     save_infinite_execution,
     save_infinite_setting,
@@ -2821,11 +2823,12 @@ class VrStudyApp(tk.Tk):
         self.refresh_infinite_rows(setting)
         self.refresh_infinite_orders(setting)
         latest = latest_input_date(self.con, setting.name)
-        next_input = date.today() - timedelta(days=1)
+        required_day = previous_us_trading_day(date.today() - timedelta(days=1))
+        next_input = required_day
         if latest is not None:
-            next_input = min(date.today() - timedelta(days=1), latest + timedelta(days=1))
+            next_input = min(required_day, next_us_trading_day(latest + timedelta(days=1)))
         if next_input < setting.start_date:
-            next_input = setting.start_date
+            next_input = next_us_trading_day(setting.start_date)
         self.infinite_input_fields["trade_date"].set(str(next_input))
         self.update_infinite_execution_guard()
         if not self._startup_loading:
@@ -4304,7 +4307,7 @@ class VrStudyApp(tk.Tk):
 
     def dashboard_infinite_rows(self) -> list[dict]:
         rows: list[dict] = []
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = previous_us_trading_day(date.today() - timedelta(days=1))
         for setting in self.visible_infinite_profiles():
             if setting.name == INFINITE_DEFAULT_SETTING:
                 continue
@@ -4354,7 +4357,7 @@ class VrStudyApp(tk.Tk):
     def infinite_missing_summary(self, setting: InfiniteSetting) -> dict:
         if setting.calculation_paused:
             return {"count": 0, "issue": "산출 중단"}
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = previous_us_trading_day(date.today() - timedelta(days=1))
         if yesterday < setting.start_date:
             return {"count": 0, "issue": ""}
         row = self.con.execute(
@@ -4649,7 +4652,7 @@ class VrStudyApp(tk.Tk):
         setting = load_infinite_setting(self.con, self.selected_infinite_profile_name())
         self.refresh_infinite_rows(setting)
         target = ""
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = previous_us_trading_day(date.today() - timedelta(days=1))
         for item_id in self.infinite_rows_tree.get_children():
             values = self.infinite_rows_tree.item(item_id, "values")
             if len(values) < 5:
@@ -4694,7 +4697,7 @@ class VrStudyApp(tk.Tk):
         return count
 
     def infinite_due_profile_count(self) -> int:
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = previous_us_trading_day(date.today() - timedelta(days=1))
         count = 0
         for name in list_infinite_profile_names(self.con):
             if name == INFINITE_DEFAULT_SETTING:

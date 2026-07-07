@@ -17,6 +17,83 @@ DEFAULT_SETTING_NAME = "default"
 INFINITE_SYMBOLS = ("TQQQ", "SOXL")
 
 
+def _nth_weekday(year: int, month: int, weekday: int, nth: int) -> date:
+    day = date(year, month, 1)
+    while day.weekday() != weekday:
+        day += timedelta(days=1)
+    return day + timedelta(days=7 * (nth - 1))
+
+
+def _last_weekday(year: int, month: int, weekday: int) -> date:
+    if month == 12:
+        day = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        day = date(year, month + 1, 1) - timedelta(days=1)
+    while day.weekday() != weekday:
+        day -= timedelta(days=1)
+    return day
+
+
+def _observed_fixed_holiday(year: int, month: int, day: int) -> date:
+    holiday = date(year, month, day)
+    if holiday.weekday() == 5:
+        return holiday - timedelta(days=1)
+    if holiday.weekday() == 6:
+        return holiday + timedelta(days=1)
+    return holiday
+
+
+def _easter_sunday(year: int) -> date:
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def us_market_holidays(year: int) -> set[date]:
+    return {
+        _observed_fixed_holiday(year, 1, 1),
+        _nth_weekday(year, 1, 0, 3),
+        _nth_weekday(year, 2, 0, 3),
+        _easter_sunday(year) - timedelta(days=2),
+        _last_weekday(year, 5, 0),
+        _observed_fixed_holiday(year, 6, 19),
+        _observed_fixed_holiday(year, 7, 4),
+        _nth_weekday(year, 9, 0, 1),
+        _nth_weekday(year, 11, 3, 4),
+        _observed_fixed_holiday(year, 12, 25),
+    }
+
+
+def is_us_trading_day(day: date) -> bool:
+    return day.weekday() < 5 and day not in us_market_holidays(day.year)
+
+
+def next_us_trading_day(day: date) -> date:
+    current = day
+    while not is_us_trading_day(current):
+        current += timedelta(days=1)
+    return current
+
+
+def previous_us_trading_day(day: date) -> date:
+    current = day
+    while not is_us_trading_day(current):
+        current -= timedelta(days=1)
+    return current
+
+
 @dataclass(frozen=True)
 class InfiniteSetting:
     name: str = DEFAULT_SETTING_NAME
@@ -383,6 +460,8 @@ def save_infinite_execution(
         raise ValueError("입력일은 시작일 이후여야 합니다.")
     if trade_date >= date.today():
         raise ValueError("무한매수법 체결 입력은 어제 날짜까지만 저장할 수 있습니다.")
+    if not is_us_trading_day(trade_date):
+        raise ValueError("무한매수법 체결 입력일은 미국장 개장일이어야 합니다.")
     if avg_price <= 0:
         raise ValueError("평단가는 0보다 커야 합니다.")
     if buy_qty < 0 or sell_qty < 0:
@@ -457,7 +536,41 @@ def generate_infinite_rows(
     cumulative_net_profit = 0.0
     cumulative_principal_effect = 0.0
     cumulative_cash_flow = 0.0
-    day = setting.start_date
+    day = next_us_trading_day(setting.start_date)
+
+    hidden_input_dates = sorted(input_day for input_day in existing_inputs if input_day < day)
+    for input_day in hidden_input_dates:
+        avg_price, buy_qty, sell_qty, cash_flow_amount = existing_inputs[input_day]
+        buy_qty = int(buy_qty or 0)
+        sell_qty = int(sell_qty or 0)
+        cash_flow_amount = float(cash_flow_amount or 0.0)
+        trade_qty = buy_qty - sell_qty
+        close_price = close_on_or_before(con, setting.symbol, input_day)
+        cumulative_qty += trade_qty
+        trade_amount = trade_cash(close_price, previous_avg, avg_price, buy_qty, sell_qty)
+        if cumulative_qty == 0 and trade_qty != 0:
+            cumulative_amount = 0.0
+        elif avg_price is not None and cumulative_qty > 0:
+            cumulative_amount = round(float(avg_price) * cumulative_qty, 2)
+        else:
+            cumulative_amount = round(cumulative_amount + trade_amount, 2)
+        fee = trade_fee(close_price, previous_avg, avg_price, buy_qty, sell_qty, setting.fee_rate)
+        stop_loss = 0.0
+        if sell_qty > 0 and close_price is not None and previous_avg is not None:
+            stop_loss = round((close_price - floor(previous_avg)) * sell_qty, 2)
+        cumulative_net_profit += stop_loss - fee
+        cumulative_principal_effect += principal_profit_effect(stop_loss, fee)
+        principal_before_withdrawal = principal_amount(
+            setting, cumulative_principal_effect, cumulative_cash_flow
+        )
+        principal_after_withdrawal = max(
+            0.0,
+            round(principal_before_withdrawal + cash_flow_amount, 2),
+        )
+        cumulative_cash_flow += cash_flow_amount
+        if avg_price is not None:
+            previous_avg = float(avg_price)
+
     while day <= through:
         avg_price, buy_qty, sell_qty, cash_flow_amount = existing_inputs.get(
             day, (None, 0, 0, 0.0)
@@ -539,7 +652,36 @@ def generate_infinite_rows(
         )
         if avg_price is not None:
             previous_avg = float(avg_price)
-        day += timedelta(days=1)
+        day = next_us_trading_day(day + timedelta(days=1))
+
+    for input_day in hidden_input_dates:
+        avg_price, buy_qty, sell_qty, cash_flow_amount = existing_inputs[input_day]
+        trade_qty = int(buy_qty or 0) - int(sell_qty or 0)
+        withdrawal_amount = -float(cash_flow_amount or 0.0)
+        con.execute(
+            """
+            INSERT INTO infinite_rows (
+                id, setting_name, trade_date, weekday, close_price, avg_price, trade_qty,
+                buy_qty, sell_qty,
+                cumulative_qty, t_value, star_price, return_rate, fee, stop_loss,
+                trade_amount, cumulative_amount, principal_before_withdrawal,
+                withdrawal_amount, cash_flow_amount, principal_after_withdrawal, created_at
+            )
+            VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 0, 0, NULL, 0, 0, 0, 0, 0, 0, ?, ?, 0, current_timestamp)
+            """,
+            [
+                next_id(con, "infinite_rows"),
+                setting.name,
+                input_day,
+                weekday_name(input_day),
+                avg_price,
+                trade_qty,
+                int(buy_qty or 0),
+                int(sell_qty or 0),
+                withdrawal_amount,
+                float(cash_flow_amount or 0.0),
+            ],
+        )
     commit_if_possible(con)
 
 
@@ -594,7 +736,8 @@ def infinite_rows(con: duckdb.DuckDBPyConnection, setting_name: str) -> list[dic
         [setting_name],
     )
     columns = [item[0] for item in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return [row for row in rows if is_us_trading_day(row["trade_date"])]
 
 
 def latest_input_date(con: duckdb.DuckDBPyConnection, setting_name: str) -> date | None:
@@ -614,11 +757,11 @@ def order_basis_row(
 ) -> dict | None:
     basis_date = latest_input_date(con, setting.name)
     if basis_date is None:
-        basis_date = setting.start_date
+        basis_date = next_us_trading_day(setting.start_date)
     else:
-        basis_date = min(basis_date + timedelta(days=1), date.today())
+        basis_date = min(next_us_trading_day(basis_date + timedelta(days=1)), date.today())
     if basis_date < setting.start_date:
-        basis_date = setting.start_date
+        basis_date = next_us_trading_day(setting.start_date)
     cursor = con.execute(
         """
         SELECT *
@@ -642,7 +785,7 @@ def order_basis_row(
 
 
 def required_execution_date(today: date | None = None) -> date:
-    return (today or date.today()) - timedelta(days=1)
+    return previous_us_trading_day((today or date.today()) - timedelta(days=1))
 
 
 def execution_ready_for_order(

@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 
-from .paths import app_data_dir
+from .paths import app_data_dir, restrict_private_file
 
 
 PROFILE_KINDS = ("vr", "infinite")
@@ -46,6 +46,7 @@ def save_kiwoom_credentials_store(data: dict, path: Path | None = None) -> Path:
         json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    restrict_private_file(path)
     return path
 
 

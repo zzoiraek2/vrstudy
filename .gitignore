@@ -12,7 +12,9 @@ venv/
 build/
 dist/
 release/
-vrstudy_web/vendor/
+vrstudy_web/vendor/*
+!vrstudy_web/vendor/echarts/
+!vrstudy_web/vendor/echarts/**
 *.spec.bak
 
 # Runtime databases and local state

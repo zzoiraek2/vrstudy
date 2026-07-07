@@ -1,0 +1,22 @@
+[Unit]
+Description=VR Study web service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vrstudy
+Group=vrstudy
+WorkingDirectory=/opt/vrstudy/app
+Environment=VRSTUDY_DATA_DIR=/opt/vrstudy/data
+Environment=VRSTUDY_HOST=127.0.0.1
+Environment=VRSTUDY_PORT=8765
+ExecStart=/opt/vrstudy/app/.venv/bin/python -m uvicorn vrstudy_web.app:app --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

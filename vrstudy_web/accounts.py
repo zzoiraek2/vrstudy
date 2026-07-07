@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from vrstudy.paths import app_data_dir
+from vrstudy.paths import app_data_dir, restrict_private_dir
 
 from .security import verify_password
 
@@ -24,6 +24,7 @@ class WebUser:
 def web_data_dir() -> Path:
     path = app_data_dir() / "web"
     path.mkdir(parents=True, exist_ok=True)
+    restrict_private_dir(path)
     return path
 
 
@@ -36,6 +37,7 @@ def user_data_dir(username: str) -> Path:
         raise ValueError("invalid username")
     path = app_data_dir() / "users" / username
     path.mkdir(parents=True, exist_ok=True)
+    restrict_private_dir(path)
     return path
 
 

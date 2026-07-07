@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from vrstudy.paths import restrict_private_file
+
 
 PASSWORD_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_ITERATIONS = 260_000
@@ -62,6 +64,7 @@ def ensure_session_secret(path: Path) -> bytes:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         path.write_text(secrets.token_urlsafe(48), encoding="utf-8")
+    restrict_private_file(path)
     return path.read_text(encoding="utf-8").strip().encode("utf-8")
 
 
@@ -93,4 +96,3 @@ def verify_session(secret: bytes, token: str | None) -> str | None:
         return None
     username = payload.get("sub")
     return username if isinstance(username, str) else None
-

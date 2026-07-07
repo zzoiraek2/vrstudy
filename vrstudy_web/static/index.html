@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VR Study Web</title>
-    <link rel="stylesheet" href="/assets/styles.css" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260707_dashboard_echarts_recalc" />
   </head>
   <body>
     <main class="shell">
@@ -40,75 +40,613 @@
             <h1>VR Study</h1>
           </div>
           <div class="session-box">
+            <span id="today-label"></span>
             <span id="session-user"></span>
             <button id="logout-button" type="button">로그아웃</button>
           </div>
         </header>
 
-        <section class="metrics" aria-label="요약">
-          <article>
-            <span>VR 결과</span>
-            <strong id="count-vr">0</strong>
-          </article>
-          <article>
-            <span>무한매수 프로필</span>
-            <strong id="count-infinite-profiles">0</strong>
-          </article>
-          <article>
-            <span>무한매수 로우</span>
-            <strong id="count-infinite-rows">0</strong>
-          </article>
-          <article>
-            <span>주문레벨</span>
-            <strong id="count-order-levels">0</strong>
-          </article>
+        <nav class="tabs" aria-label="주요 화면">
+          <button class="tab-button active" type="button" data-tab="dashboard-tab">대시보드</button>
+          <button class="tab-button" type="button" data-tab="vr-tab">VR</button>
+          <button class="tab-button" type="button" data-tab="infinite-tab">무한매수법</button>
+          <button class="tab-button" type="button" data-tab="telegram-tab">텔레그램</button>
+        </nav>
+
+        <section id="dashboard-tab" class="tab-page active">
+          <section class="metrics" aria-label="요약">
+            <article>
+              <span>합산 현재자산(원화)</span>
+              <strong id="dashboard-total-value">0</strong>
+            </article>
+            <article>
+              <span>합산 손익 / 수익률</span>
+              <strong id="dashboard-total-profit">0</strong>
+            </article>
+            <article>
+              <span>대기 / 미작성</span>
+              <strong id="dashboard-due-count">0</strong>
+            </article>
+            <article>
+              <span>적용 환율</span>
+              <strong id="dashboard-fx-rate">0</strong>
+            </article>
+          </section>
+
+          <section class="dashboard-details" aria-label="선택 프로필 상세">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>VR 상세</h2>
+                <span id="dashboard-vr-detail-label">VR 표에서 프로필을 더블클릭</span>
+              </div>
+              <div class="table-wrap dashboard-detail-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>항목</th>
+                      <th>값</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-vr-detail-rows"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>무한매수법 상세</h2>
+                <span id="dashboard-infinite-detail-label">무한매수법 표에서 프로필을 더블클릭</span>
+              </div>
+              <div class="table-wrap dashboard-detail-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>항목</th>
+                      <th>값</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-infinite-detail-rows"></tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+
+          <section class="dashboard-charts" aria-label="대시보드 그래프">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>VR 그래프 분석</h2>
+                <span id="dashboard-vr-chart-label">-</span>
+              </div>
+              <div class="chart-grid">
+                <div id="dashboard-vr-band-chart" class="chart-box"></div>
+                <div id="dashboard-vr-profit-chart" class="chart-box"></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>무한매수법 그래프 분석</h2>
+                <span id="dashboard-infinite-chart-label">-</span>
+              </div>
+              <div class="chart-grid">
+                <div id="dashboard-infinite-asset-chart" class="chart-box"></div>
+                <div id="dashboard-infinite-profit-chart" class="chart-box"></div>
+              </div>
+            </section>
+          </section>
+
+          <div class="tables dashboard-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>총괄 요약</h2>
+                <span>VR / 무한매수법</span>
+              </div>
+              <div class="table-wrap dashboard-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>항목</th>
+                      <th>값</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-summary-rows"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2>대기 / 미작성</h2>
+                <span id="dashboard-due-label">0개</span>
+              </div>
+              <div class="table-wrap dashboard-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>구분</th>
+                      <th>프로필</th>
+                      <th>내용</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-due-items"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2>VR</h2>
+                <span id="vr-profile-count">0개</span>
+              </div>
+              <div class="table-wrap dashboard-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>프로필</th>
+                      <th>원금</th>
+                      <th>현재자산</th>
+                      <th>손익</th>
+                      <th>수익률</th>
+                      <th>마지막</th>
+                      <th>미작성</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-vr-profiles"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2>무한매수법</h2>
+                <span id="infinite-profile-count">0개</span>
+              </div>
+              <div class="table-wrap dashboard-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>프로필</th>
+                      <th>원금</th>
+                      <th>투입금</th>
+                      <th>평가금</th>
+                      <th>수익률</th>
+                      <th>평단</th>
+                      <th>T 진행</th>
+                      <th>미작성</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-infinite-profiles"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
         </section>
 
-        <div class="tables">
-          <section class="panel">
-            <div class="panel-header">
-              <h2>VR 프로필</h2>
-              <span id="vr-profile-count">0개</span>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>프로필</th>
-                    <th>종목</th>
-                    <th>계좌</th>
-                  </tr>
-                </thead>
-                <tbody id="vr-profiles"></tbody>
-              </table>
-            </div>
-          </section>
+        <section id="vr-tab" class="tab-page">
+          <div class="profile-bar">
+            <label>
+              <span>프로필</span>
+              <select id="vr-profile-select"></select>
+            </label>
+            <button id="new-vr" type="button">새 프로필</button>
+            <button id="rename-vr" type="button">이름 변경</button>
+            <button id="delete-vr" type="button">삭제</button>
+            <button id="refresh-vr" type="button">새로고침</button>
+            <button id="current-vr" type="button">현재조회</button>
+            <button id="pause-vr" type="button">산출 중단</button>
+            <span id="vr-cycle-status" class="bar-status"></span>
+          </div>
 
+          <div class="strategy-layout">
+            <section class="left-pane">
+              <nav class="inner-tabs" data-group="vr">
+                <button class="inner-tab active" type="button" data-panel="vr-settings-panel">설정</button>
+                <button class="inner-tab" type="button" data-panel="vr-cycle-panel">주차별 입력</button>
+                <button class="inner-tab" type="button" data-panel="vr-order-panel">매수/매도점</button>
+                <button class="inner-tab" type="button" data-panel="vr-api-panel">API</button>
+                <button class="inner-tab" type="button" data-panel="vr-fill-panel">체결내역</button>
+              </nav>
+
+              <section id="vr-settings-panel" class="inner-panel active">
+                <section class="panel compact-panel">
+                  <div class="panel-header"><h2>투자 설정</h2></div>
+                  <div class="readonly-form single" id="vr-settings"></div>
+                </section>
+              </section>
+
+              <section id="vr-cycle-panel" class="inner-panel">
+                <section class="panel compact-panel">
+                  <div class="panel-header"><h2>주차별 입력</h2></div>
+                  <div id="vr-latest-input"></div>
+                  <p id="vr-cycle-message" class="message muted-message padded-message"></p>
+                </section>
+              </section>
+
+              <section id="vr-order-panel" class="inner-panel">
+                <section class="panel compact-panel">
+                  <div class="panel-header"><h2>매수/매도점 보기 옵션</h2></div>
+                  <div class="readonly-form single" id="vr-order-options"></div>
+                  <div class="form-actions padded-actions">
+                    <button type="button" disabled>매수/매도점 다시 계산</button>
+                  </div>
+                </section>
+              </section>
+
+              <section id="vr-api-panel" class="inner-panel">
+                <section class="panel compact-panel">
+                  <div class="panel-header">
+                    <h2>키움 REST API 키</h2>
+                    <span>VR 프로필별 저장</span>
+                  </div>
+                  <form id="vr-api-form" class="settings-form one-col">
+                    <label>
+                      <span>투자 구분</span>
+                      <select name="investment_type">
+                        <option>실전투자</option>
+                        <option>모의투자</option>
+                      </select>
+                    </label>
+                    <label><span>계좌번호</span><input name="account_number" /></label>
+                    <label><span>App Key</span><input name="app_key" autocomplete="off" /></label>
+                    <label>
+                      <span>App Secret</span>
+                      <input name="app_secret" type="password" autocomplete="new-password" />
+                    </label>
+                    <label><span>만료일</span><input name="expires_at" placeholder="YYYY-MM-DD" /></label>
+                    <label><span>메모</span><input name="memo" /></label>
+                    <div class="form-actions">
+                      <button type="submit">API 키 저장</button>
+                      <button id="vr-test-api-token" type="button">토큰 발급 테스트</button>
+                      <button id="vr-reload-api" type="button">다시 불러오기</button>
+                    </div>
+                    <p id="vr-api-message" class="message muted-message"></p>
+                  </form>
+                  <section class="api-result-box">
+                    <div class="panel-header subheader"><h2>VR 결과구간 API 검증</h2></div>
+                    <div class="readonly-form single" id="vr-api-period-preview"></div>
+                    <div class="form-actions padded-actions">
+                      <button id="vr-api-period-call" type="button">호출</button>
+                    </div>
+                    <p id="vr-api-period-message" class="message muted-message padded-message"></p>
+                  </section>
+                </section>
+              </section>
+
+              <section id="vr-fill-panel" class="inner-panel">
+                <section class="panel compact-panel">
+                  <div class="panel-header">
+                    <h2>대상기간 체결내역</h2>
+                    <div class="header-actions">
+                      <button id="vr-fill-previous" type="button">지난차수 조회</button>
+                      <button id="vr-fill-current" type="button">현재차수 조회</button>
+                    </div>
+                  </div>
+                  <div class="table-wrap small-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>일자</th>
+                          <th>구분</th>
+                          <th>가격</th>
+                          <th>수량</th>
+                          <th>금액</th>
+                        </tr>
+                      </thead>
+                      <tbody id="vr-fill-history"></tbody>
+                    </table>
+                  </div>
+                  <p id="vr-fill-message" class="message muted-message padded-message"></p>
+                </section>
+              </section>
+            </section>
+
+            <section class="right-pane">
+              <section class="panel">
+                <div class="panel-header">
+                  <h2>VR 로우데이터</h2>
+                  <span id="vr-snapshot-count">0개</span>
+                </div>
+                <div class="table-wrap strategy-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>차수</th>
+                        <th>시작일</th>
+                        <th>종료일</th>
+                        <th>상태</th>
+                        <th>종가</th>
+                        <th>V</th>
+                        <th>매매액</th>
+                        <th>Pool</th>
+                        <th>자산</th>
+                        <th>수량</th>
+                        <th>수익률</th>
+                      </tr>
+                    </thead>
+                    <tbody id="vr-snapshots"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <div class="right-grid">
+                <section class="panel calculation-panel">
+                  <div class="panel-header"><h2>선택 행 계산 근거</h2></div>
+                  <div class="readonly-form single" id="vr-summary"></div>
+                </section>
+                <section class="panel order-split-panel">
+                  <div class="panel-header">
+                    <h2>매수/매도점</h2>
+                    <button id="vr-execute-orders" type="button" disabled>주문실행</button>
+                  </div>
+                  <div class="order-control-row">
+                    <label>
+                      <span>매도행 기준</span>
+                      <select id="vr-sell-order-mode">
+                        <option value="match_buy">매수 행에 맞춰 주문</option>
+                        <option value="manual">매도행 직접 설정</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>매도행 수</span>
+                      <input id="vr-sell-order-count" type="number" min="0" max="500" value="0" disabled />
+                    </label>
+                  </div>
+                  <p id="vr-order-message" class="message muted-message padded-message"></p>
+                  <div class="split-order-tables">
+                    <section class="split-table-box">
+                      <h3>매수</h3>
+                      <div class="table-wrap small-table">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>단계</th>
+                              <th>가격</th>
+                              <th>수량</th>
+                            </tr>
+                          </thead>
+                          <tbody id="vr-buy-order-levels"></tbody>
+                        </table>
+                      </div>
+                    </section>
+                    <section class="split-table-box">
+                      <h3>매도</h3>
+                      <div class="table-wrap small-table">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>단계</th>
+                              <th>가격</th>
+                              <th>수량</th>
+                            </tr>
+                          </thead>
+                          <tbody id="vr-sell-order-levels"></tbody>
+                        </table>
+                      </div>
+                    </section>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="infinite-tab" class="tab-page">
+          <div class="profile-bar">
+            <label>
+              <span>프로필</span>
+              <select id="infinite-profile-select"></select>
+            </label>
+            <button id="new-infinite" type="button">새 프로필</button>
+            <button id="rename-infinite" type="button">이름 변경</button>
+            <button id="delete-infinite" type="button">삭제</button>
+            <button id="refresh-infinite" type="button">새로고침</button>
+            <button id="current-infinite" type="button">현재조회</button>
+            <button id="pause-infinite" type="button">산출 중단</button>
+          </div>
+
+          <div class="strategy-layout">
+            <section class="left-pane">
+              <nav class="inner-tabs" data-group="infinite">
+                <button class="inner-tab active" type="button" data-panel="infinite-settings-panel">설정</button>
+                <button class="inner-tab" type="button" data-panel="infinite-execution-panel">전일 체결 결과 입력</button>
+                <button class="inner-tab" type="button" data-panel="infinite-api-panel">API</button>
+              </nav>
+
+              <section id="infinite-settings-panel" class="inner-panel active">
+                <section class="panel compact-panel">
+                  <div class="panel-header"><h2>프로필 설정</h2></div>
+                  <div class="readonly-form single" id="infinite-settings"></div>
+                </section>
+              </section>
+
+              <section id="infinite-execution-panel" class="inner-panel">
+                <section class="panel compact-panel">
+                  <div class="panel-header"><h2>전일 체결 결과 입력</h2></div>
+                  <div class="readonly-form single" id="infinite-execution-preview"></div>
+                  <p id="infinite-execution-message" class="message muted-message padded-message"></p>
+                </section>
+              </section>
+
+              <section id="infinite-api-panel" class="inner-panel">
+                <section class="panel compact-panel">
+                  <div class="panel-header">
+                    <h2>키움 REST API 키</h2>
+                    <span>무한매수법 프로필별 저장</span>
+                  </div>
+                  <form id="infinite-api-form" class="settings-form one-col">
+                    <label>
+                      <span>투자 구분</span>
+                      <select name="investment_type">
+                        <option>실전투자</option>
+                        <option>모의투자</option>
+                      </select>
+                    </label>
+                    <label><span>계좌번호</span><input name="account_number" /></label>
+                    <label><span>App Key</span><input name="app_key" autocomplete="off" /></label>
+                    <label>
+                      <span>App Secret</span>
+                      <input name="app_secret" type="password" autocomplete="new-password" />
+                    </label>
+                    <label><span>만료일</span><input name="expires_at" placeholder="YYYY-MM-DD" /></label>
+                    <label><span>메모</span><input name="memo" /></label>
+                    <div class="form-actions">
+                      <button type="submit">API 키 저장</button>
+                      <button id="infinite-test-api-token" type="button">토큰 발급 테스트</button>
+                      <button id="infinite-reload-api" type="button">다시 불러오기</button>
+                    </div>
+                    <p id="infinite-api-message" class="message muted-message"></p>
+                  </form>
+                  <section class="api-result-box">
+                    <div class="panel-header subheader"><h2>체결입력정보 조회</h2></div>
+                    <div class="readonly-form single" id="infinite-api-preview"></div>
+                    <div class="form-actions padded-actions">
+                      <button id="infinite-api-preview-call" type="button">호출</button>
+                    </div>
+                    <p id="infinite-api-preview-message" class="message muted-message padded-message"></p>
+                  </section>
+                  <section class="api-result-box">
+                    <div class="panel-header subheader">
+                      <h2>잔고조회</h2>
+                      <span>미국주식 원장잔고확인 (ust21070)</span>
+                    </div>
+                    <div class="form-actions padded-actions">
+                      <button id="infinite-balance-call" type="button">호출</button>
+                    </div>
+                    <pre id="infinite-balance-result" class="json-result"></pre>
+                    <p id="infinite-balance-message" class="message muted-message padded-message"></p>
+                  </section>
+                </section>
+              </section>
+            </section>
+
+            <section class="right-pane">
+              <section class="panel">
+                <div class="panel-header">
+                  <h2>일별 로우데이터</h2>
+                  <span id="infinite-row-count">0개</span>
+                </div>
+                <div class="table-wrap strategy-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>일자</th>
+                        <th>종가</th>
+                        <th>평단</th>
+                        <th>매수</th>
+                        <th>매도</th>
+                        <th>누적수량</th>
+                        <th>T</th>
+                        <th>별</th>
+                        <th>수익률</th>
+                        <th>매매액</th>
+                        <th>누적투입</th>
+                      </tr>
+                    </thead>
+                    <tbody id="infinite-rows"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-header">
+                  <h2>금일 주문표</h2>
+                  <button id="infinite-execute-after-input" type="button" disabled>체결입력 후 주문실행</button>
+                  <button id="infinite-execute-orders" type="button" disabled>주문실행</button>
+                </div>
+                <p id="infinite-order-message" class="message muted-message padded-message"></p>
+                <div class="split-order-tables">
+                  <section class="split-table-box">
+                    <h3>매수</h3>
+                    <div class="table-wrap small-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>종류</th>
+                            <th>가격</th>
+                            <th>수량</th>
+                          </tr>
+                        </thead>
+                        <tbody id="infinite-buy-order-table"></tbody>
+                      </table>
+                    </div>
+                  </section>
+                  <section class="split-table-box">
+                    <h3>매도</h3>
+                    <div class="table-wrap small-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>종류</th>
+                            <th>가격</th>
+                            <th>수량</th>
+                          </tr>
+                        </thead>
+                        <tbody id="infinite-sell-order-table"></tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+              </section>
+            </section>
+          </div>
+        </section>
+
+        <section id="telegram-tab" class="tab-page">
           <section class="panel">
             <div class="panel-header">
-              <h2>무한매수법</h2>
-              <span id="infinite-profile-count">0개</span>
+              <h2>텔레그램 설정</h2>
+              <span id="telegram-status">계정별 저장</span>
             </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>프로필</th>
-                    <th>종목</th>
-                    <th>시작일</th>
-                    <th>계좌</th>
-                    <th>상태</th>
-                  </tr>
-                </thead>
-                <tbody id="infinite-profiles"></tbody>
-              </table>
-            </div>
+            <form id="telegram-form" class="settings-form two-col">
+              <label>
+                <span>Bot Token</span>
+                <input name="bot_token" type="password" autocomplete="new-password" />
+              </label>
+              <label><span>Chat ID</span><input name="chat_id" /></label>
+              <label>
+                <span>주문행 최대 개수</span>
+                <input name="order_row_limit" type="number" min="1" max="100" />
+              </label>
+              <div class="checkbox-grid">
+                <label><input name="auto_send_on_calculation" type="checkbox" /> 산출 완료 시 자동 발송</label>
+                <label><input name="auto_send_vr_orders" type="checkbox" /> VR 주문표 자동 발송</label>
+                <label><input name="auto_send_infinite_orders" type="checkbox" /> 무한매수법 주문표 자동 발송</label>
+                <label><input name="send_order_table" type="checkbox" /> 주문표 포함</label>
+                <label><input name="send_due" type="checkbox" /> 작성 입력 필요 / 미작성</label>
+                <label><input name="send_dashboard" type="checkbox" /> 대시보드 총괄 요약</label>
+                <label><input name="send_vr_summary" type="checkbox" /> VR 프로필 요약</label>
+                <label><input name="send_infinite_summary" type="checkbox" /> 무한매수법 프로필 요약</label>
+                <label><input name="send_order_status" type="checkbox" /> 주문표 상태 요약</label>
+                <label><input name="include_paused" type="checkbox" /> 산출 중단 프로필 포함</label>
+              </div>
+              <div class="form-actions">
+                <button type="submit">설정 저장</button>
+                <button id="test-telegram" type="button">테스트 메시지</button>
+                <button id="send-telegram-selected" type="button">선택 항목 보내기</button>
+                <button id="reload-telegram" type="button">다시 불러오기</button>
+              </div>
+              <p id="telegram-message" class="message muted-message"></p>
+            </form>
           </section>
-        </div>
+        </section>
       </section>
     </main>
-    <script src="/assets/app.js"></script>
+    <div id="profile-create-modal" class="modal-overlay" hidden>
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="profile-create-title">
+        <form id="profile-create-form">
+          <div class="modal-header">
+            <h2 id="profile-create-title">새 프로필</h2>
+            <button id="profile-create-close" type="button" aria-label="닫기">x</button>
+          </div>
+          <label class="modal-field">
+            <span>프로필명</span>
+            <input id="profile-create-name" name="name" autocomplete="off" />
+          </label>
+          <p id="profile-create-message" class="message muted-message"></p>
+          <div class="modal-actions">
+            <button id="profile-create-submit" type="submit">생성</button>
+            <button id="profile-create-cancel" type="button">취소</button>
+          </div>
+        </form>
+      </section>
+    </div>
+    <script src="/assets/app.js?v=20260707_display_filter"></script>
   </body>
 </html>
-
