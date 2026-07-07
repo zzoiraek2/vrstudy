@@ -1264,7 +1264,7 @@ function orderResultText(result) {
   }
   if (result.order_executions && result.order_executions.length) {
     lines.push("최근 주문 이력:");
-    result.order_executions.slice(0, 10).forEach((row, index) => {
+    result.order_executions.forEach((row, index) => {
       const price = row.price == null ? "시장가" : number(row.price);
       const orderNo = row.order_no || "-";
       const status = row.status === "failed" ? "실패" : "전송";
@@ -1327,12 +1327,9 @@ function renderOrderResult(kind, result) {
   const executionRows = orderResultRows(result);
   const sentCount = executionRows.filter((row) => row.status !== "failed").length;
   const failedCount = executionRows.filter((row) => row.status === "failed").length;
-  const resultLabel = result?.history_only ? "이력" : (result?.ok ? "성공" : "실패");
   const summaryItems = [
-    ["결과", result ? resultLabel : "-"],
     ["주문건수", result ? `${sentCount}건` : "-"],
     ["실패", result ? `${failedCount}건` : "-"],
-    ["메시지", result ? orderResultStatusText(result) : "아직 주문결과가 없습니다."],
   ];
   summary.innerHTML = "";
   summaryItems.forEach(([label, value]) => {

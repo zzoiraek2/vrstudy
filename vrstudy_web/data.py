@@ -240,7 +240,6 @@ def _recent_order_execution_rows(
     strategy: str,
     profile_name: str,
     order_date: date | str,
-    limit: int = 20,
 ) -> list[dict[str, Any]]:
     if not _order_execution_table_exists(con):
         return []
@@ -265,9 +264,8 @@ def _recent_order_execution_rows(
           AND order_date = ?
           AND status IN ('sent', 'failed')
         ORDER BY id DESC
-        LIMIT ?
         """,
-        (strategy, profile_name, _order_execution_date(order_date), limit),
+        (strategy, profile_name, _order_execution_date(order_date)),
     )
 
 
