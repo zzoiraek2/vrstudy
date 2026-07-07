@@ -178,4 +178,3 @@ python -m vrstudy.cli show-latest --profile "VR1湲?
 - `data\backups\`: automatic backups and recovery copies.
 - TQQQ prices are shared across profiles.
 - Snapshots and order levels are separated by `profile_name`.
-
