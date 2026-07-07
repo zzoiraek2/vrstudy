@@ -1315,9 +1315,27 @@ function orderResultRows(result) {
 }
 
 function statusLabel(status) {
-  if (status === "sent") return "전송";
+  if (status === "sent") return "접수응답";
+  if (status === "accepted") return "미체결";
+  if (status === "filled") return "체결";
+  if (status === "partial") return "부분체결";
+  if (status === "canceled") return "취소";
+  if (status === "unfilled_closed") return "실패(미체결종료)";
+  if (status === "not_found") return "실패(조회없음)";
   if (status === "failed") return "실패";
   return status || "-";
+}
+
+function orderResultStatus(row) {
+  return row?.status || row?.verified_status || "";
+}
+
+function isFilledOrderStatus(status) {
+  return status === "filled" || status === "partial";
+}
+
+function isFailedOrderStatus(status) {
+  return ["failed", "canceled", "unfilled_closed", "not_found"].includes(status);
 }
 
 function renderOrderResult(kind, result) {
@@ -1325,11 +1343,13 @@ function renderOrderResult(kind, result) {
   const tbody = document.getElementById(`${kind}-order-result-rows`);
   if (!summary || !tbody) return;
   const executionRows = orderResultRows(result);
-  const sentCount = executionRows.filter((row) => row.status !== "failed").length;
-  const failedCount = executionRows.filter((row) => row.status === "failed").length;
+  const orderCount = executionRows.length;
+  const filledCount = executionRows.filter((row) => isFilledOrderStatus(orderResultStatus(row))).length;
+  const failedCount = executionRows.filter((row) => isFailedOrderStatus(orderResultStatus(row))).length;
   const summaryItems = [
-    ["주문건수", result ? `${sentCount}건` : "-"],
-    ["실패", result ? `${failedCount}건` : "-"],
+    ["주문건수", result ? `${orderCount}건` : "-"],
+    ["체결", result ? `${filledCount}건` : "-"],
+    ["실패/미체결종료", result ? `${failedCount}건` : "-"],
   ];
   summary.innerHTML = "";
   summaryItems.forEach(([label, value]) => {
@@ -1366,7 +1386,7 @@ function renderOrderResult(kind, result) {
     return;
   }
   rows(`${kind}-order-result-rows`, executionRows, 7, (row) => [
-    statusLabel(row.status),
+    statusLabel(orderResultStatus(row)),
     row.side_label,
     row.order_type,
     row.price == null || row.price === "" ? "시장가" : number(row.price),

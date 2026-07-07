@@ -366,6 +366,27 @@ def _order_executions_for_response(
         con.close()
 
 
+def _verify_order_execution_rows(
+    execution_rows: list[dict[str, Any]],
+    credentials: KiwoomCredentials,
+    token: Any,
+    *,
+    order_date: date,
+    stex_tp: str,
+    symbol: str,
+) -> list[dict[str, Any]]:
+    if not execution_rows:
+        return execution_rows
+    history_rows = _order_history_rows_for_date(
+        credentials,
+        token,
+        order_date=order_date,
+        stex_tp=stex_tp,
+        symbol=symbol,
+    )
+    return _apply_order_history_verification(execution_rows, history_rows)
+
+
 def _read_profile_files(
     base_dir: Path, kind: str = "vr", include_default: bool = False
 ) -> list[dict[str, Any]]:
@@ -549,6 +570,79 @@ def _order_filled_amount(row: dict) -> float:
     qty = _order_filled_quantity(row)
     price = _clean_float(row.get("cntr_uv"))
     return abs(qty * price)
+
+
+def _order_history_no(row: dict) -> str:
+    return str(_first_row_value(row, "ord_no", "odno", "orgn_ord_no") or "").strip()
+
+
+def _verified_order_status(history_row: dict | None) -> tuple[str, str, dict[str, int]]:
+    if not history_row:
+        return "not_found", "키움 주문내역에서 주문번호를 찾지 못했습니다.", {
+            "filled_quantity": 0,
+            "remaining_quantity": 0,
+            "canceled_quantity": 0,
+        }
+    filled = _clean_int(history_row.get("cntr_qty"))
+    remaining = _clean_int(history_row.get("ord_remnq"))
+    canceled = _clean_int(history_row.get("cncl_qty"))
+    quantities = {
+        "filled_quantity": filled,
+        "remaining_quantity": remaining,
+        "canceled_quantity": canceled,
+    }
+    if filled > 0 and remaining > 0:
+        return "partial", f"부분체결 {filled}주 / 미체결 {remaining}주", quantities
+    if filled > 0:
+        return "filled", f"체결 {filled}주", quantities
+    if remaining > 0:
+        return "accepted", f"미체결 잔량 {remaining}주", quantities
+    if canceled > 0:
+        return "canceled", f"취소 {canceled}주", quantities
+    return "unfilled_closed", "체결 0주 / 잔량 0주 - 유효 주문으로 남아있지 않습니다.", quantities
+
+
+def _apply_order_history_verification(
+    execution_rows: list[dict[str, Any]], history_rows: list[dict]
+) -> list[dict[str, Any]]:
+    history_by_no = {
+        order_no: row
+        for row in history_rows
+        if (order_no := _order_history_no(row))
+    }
+    verified_rows: list[dict[str, Any]] = []
+    for row in execution_rows:
+        item = dict(row)
+        history_row = history_by_no.get(str(item.get("order_no") or "").strip())
+        verified_status, verified_message, quantities = _verified_order_status(history_row)
+        item["api_status"] = item.get("status")
+        item["status"] = verified_status
+        item["verified_message"] = verified_message
+        item.update(quantities)
+        item["message"] = verified_message
+        verified_rows.append(item)
+    return verified_rows
+
+
+def _order_history_rows_for_date(
+    credentials: KiwoomCredentials,
+    token: Any,
+    *,
+    order_date: date,
+    stex_tp: str,
+    symbol: str,
+) -> list[dict]:
+    history = request_us_period_order_history(
+        credentials,
+        token,
+        start_date=order_date.strftime("%Y%m%d"),
+        end_date=order_date.strftime("%Y%m%d"),
+        slby_tp="0",
+        stex_tp=stex_tp,
+        stk_cd=symbol.upper(),
+        oppo_trde_tp="%",
+    )
+    return _result_rows(history)
 
 
 def _summarize_last_order_day(rows: list[dict], symbol: str) -> dict[str, Any]:
@@ -1338,6 +1432,27 @@ def vr_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
                     detail["order_executions"] = _recent_order_execution_rows(
                         con, "vr", profile_name, query_day
                     )
+                    if detail["order_executions"]:
+                        try:
+                            verify_credentials = load_kiwoom_credentials(
+                                "vr", profile_name, kiwoom_credentials_path(username)
+                            )
+                            verify_token, _ = _ensure_user_kiwoom_token(
+                                username, "vr", profile_name, verify_credentials
+                            )
+                            verify_stex_tp = _resolve_user_exchange_code(
+                                verify_credentials, verify_token, profile_obj.symbol
+                            )
+                            detail["order_executions"] = _verify_order_execution_rows(
+                                detail["order_executions"],
+                                verify_credentials,
+                                verify_token,
+                                order_date=query_day,
+                                stex_tp=verify_stex_tp,
+                                symbol=profile_obj.symbol,
+                            )
+                        except Exception as exc:
+                            detail["order_history_warning"] = f"키움 주문내역 검증 실패: {exc}"
                     detail["order_date"] = query_day.isoformat()
                     detail["order_expected_count"] = expected_count
                     detail["order_executable"] = bool(
@@ -2064,6 +2179,27 @@ def infinite_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
                     detail["order_executions"] = _recent_order_execution_rows(
                         con, "infinite", profile_name, basis_date
                     )
+                    if detail["order_executions"]:
+                        try:
+                            verify_credentials = load_kiwoom_credentials(
+                                "infinite", profile_name, kiwoom_credentials_path(username)
+                            )
+                            verify_token, _ = _ensure_user_kiwoom_token(
+                                username, "infinite", profile_name, verify_credentials
+                            )
+                            verify_stex_tp = _resolve_user_exchange_code(
+                                verify_credentials, verify_token, setting.symbol
+                            )
+                            detail["order_executions"] = _verify_order_execution_rows(
+                                detail["order_executions"],
+                                verify_credentials,
+                                verify_token,
+                                order_date=basis_date,
+                                stex_tp=verify_stex_tp,
+                                symbol=setting.symbol,
+                            )
+                        except Exception as exc:
+                            detail["order_history_warning"] = f"키움 주문내역 검증 실패: {exc}"
                     detail["order_date"] = basis_date.isoformat()
                     detail["order_executable"] = bool(
                         basis_date == date.today() and has_orders and sent_count == 0
@@ -2861,13 +2997,25 @@ def execute_vr_web_orders(
         execution_summary = _order_rows_side_summary(execution_rows)
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
         action_label = "VR 재주문" if force_reorder else "VR 주문실행"
+        order_executions = _order_executions_for_response(
+            username, "vr", profile_name, query_day
+        )
+        try:
+            order_executions = _verify_order_execution_rows(
+                order_executions,
+                credentials,
+                token,
+                order_date=query_day,
+                stex_tp=stex_tp,
+                symbol=profile.symbol,
+            )
+        except Exception:
+            pass
         return {
             "ok": True,
             "message": f"{action_label} 완료: {len(successes)}건 / 주문 실행일 {query_day} / {token_state}",
             "successes": successes,
-            "order_executions": _order_executions_for_response(
-                username, "vr", profile_name, query_day
-            ),
+            "order_executions": order_executions,
             "summary": {
                 "original": original_summary,
                 "deducted": deducted_summary,
@@ -2972,13 +3120,25 @@ def execute_infinite_web_orders(
             log_con.close()
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
         action_label = "무한매수법 재주문" if force_reorder else "무한매수법 주문실행"
+        order_executions = _order_executions_for_response(
+            username, "infinite", profile_name, basis_date
+        )
+        try:
+            order_executions = _verify_order_execution_rows(
+                order_executions,
+                credentials,
+                token,
+                order_date=basis_date,
+                stex_tp=stex_tp,
+                symbol=setting.symbol,
+            )
+        except Exception:
+            pass
         return {
             "ok": True,
             "message": f"{action_label} 완료: {len(successes)}건 / 주문 실행일 {basis_date} / {token_state}",
             "successes": successes,
-            "order_executions": _order_executions_for_response(
-                username, "infinite", profile_name, basis_date
-            ),
+            "order_executions": order_executions,
         }
     except KiwoomApiError as exc:
         return {
