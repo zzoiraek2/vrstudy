@@ -1550,7 +1550,7 @@ function infiniteAfterInputReady() {
     const preview = state.infiniteExecutionPreview.preview;
     return Boolean(preview.trade_date && preview.trade_date !== "-" && preview.trade_date === payload.trade_date);
   }
-  return Number.isFinite(payload.avg_price) && payload.avg_price > 0;
+  return true;
 }
 
 function updateInfiniteOrderButtons() {
@@ -1669,18 +1669,7 @@ async function executeInfiniteOrders(forceReorder = false) {
 
 async function executeInfiniteAfterInput() {
   const profile = state.selectedInfinite;
-  const result = state.infiniteExecutionPreview;
   if (!profile) return;
-  const current = infiniteExecutionFormValues();
-  const currentPayload = infiniteExecutionPayload(current);
-  const preview = result?.preview || null;
-  const inputPayload = preview && preview.trade_date === currentPayload.trade_date ? {
-    trade_date: preview.trade_date,
-    avg_price: Number(preview.avg_price),
-    buy_qty: Number(preview.buy_qty || 0),
-    sell_qty: Number(preview.sell_qty || 0),
-    cash_flow_amount: currentPayload.cash_flow_amount,
-  } : currentPayload;
   if (state.infiniteDetail?.order_executable) {
     text("infinite-order-message", "이미 해당 주문표가 있습니다. 주문실행 버튼을 사용하세요.");
     updateInfiniteOrderButtons();
@@ -1690,6 +1679,47 @@ async function executeInfiniteAfterInput() {
     text("infinite-order-message", "체결입력 저장 가능한 상태가 아닙니다.");
     updateInfiniteOrderButtons();
     return;
+  }
+  const current = infiniteExecutionFormValues();
+  const currentPayload = infiniteExecutionPayload(current);
+  let result = state.infiniteExecutionPreview;
+  let preview = result?.preview || null;
+  if (!result?.ok || !preview || preview.trade_date !== currentPayload.trade_date) {
+    try {
+      text("infinite-order-message", "체결 결과 조회 중...");
+      result = await api(`/api/kiwoom/infinite/${encodeURIComponent(profile)}/execution-preview`, {
+        method: "POST",
+        body: "{}",
+      });
+      state.infiniteExecutionPreview = result;
+      preview = result?.preview || null;
+      if (preview) {
+        renderFields("infinite-api-preview", preview, [
+          ["입력일", "trade_date"],
+          ["평균단가", "avg_price"],
+          ["매수개수", "buy_qty", (v) => number(v, 0)],
+          ["매도개수", "sell_qty", (v) => number(v, 0)],
+        ]);
+        text("infinite-api-preview-message", result.message || (result.ok ? "조회 성공" : "조회 실패"));
+      }
+    } catch (error) {
+      text("infinite-order-message", `체결 결과 조회 실패: ${error.message}`);
+      return;
+    }
+  }
+  const inputPayload = preview ? {
+    trade_date: preview.trade_date,
+    avg_price: Number(preview.avg_price),
+    buy_qty: Number(preview.buy_qty || 0),
+    sell_qty: Number(preview.sell_qty || 0),
+    cash_flow_amount: currentPayload.cash_flow_amount,
+  } : currentPayload;
+  const form = document.getElementById("infinite-execution-form");
+  if (form && preview) {
+    setFormValues(form, {
+      ...inputPayload,
+      cash_flow_amount: currentPayload.cash_flow_amount,
+    });
   }
   if (!inputPayload.trade_date || inputPayload.trade_date === "-") {
     text("infinite-order-message", "조회 결과에 체결 입력일이 없습니다.");
