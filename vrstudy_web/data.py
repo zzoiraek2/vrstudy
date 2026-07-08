@@ -51,6 +51,7 @@ from vrstudy.profiles import (
     Profile,
     create_profile,
     delete_profile,
+    list_profiles,
     rename_profile,
     save_profile,
     update_profile,
@@ -391,6 +392,8 @@ def _verify_order_execution_rows(
 def _read_profile_files(
     base_dir: Path, kind: str = "vr", include_default: bool = False
 ) -> list[dict[str, Any]]:
+    if kind == "vr":
+        return _read_vr_profile_files(base_dir, include_default)
     profiles_dir = base_dir / "profiles" / kind
     if not profiles_dir.exists():
         return []
@@ -410,6 +413,24 @@ def _read_profile_files(
         item["profile_no"] = raw.get("profile_no")
         item["calculation_paused"] = bool(raw.get("calculation_paused", False))
         item["file"] = path.name
+        profiles.append(_json_value(item))
+    return profiles
+
+
+def _read_vr_profile_files(
+    base_dir: Path, include_default: bool = False
+) -> list[dict[str, Any]]:
+    profiles_dir = base_dir / "profiles" / "vr"
+    profiles: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for profile in list_profiles(profiles_dir):
+        if not include_default and profile.name == "default":
+            continue
+        if profile.name in seen_names:
+            continue
+        seen_names.add(profile.name)
+        item = asdict(profile)
+        item["file"] = f"{_safe_profile_filename(profile.name)}.json"
         profiles.append(_json_value(item))
     return profiles
 
