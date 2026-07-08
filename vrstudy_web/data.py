@@ -3128,7 +3128,7 @@ def execute_vr_web_orders(
         )
         ok = bool(successes)
         result_label = "완료" if ok else "실패"
-        return {
+        result = {
             "ok": ok,
             "message": (
                 f"{action_label} {result_label}: 성공 {len(successes)}건 / 실패 {failed_count}건 "
@@ -3148,8 +3148,9 @@ def execute_vr_web_orders(
             "unmatched_fills": unmatched_fills,
             "fills": fill_rows,
         }
+        return _with_api_order_result_telegram(username, "vr", profile_name, result)
     except KiwoomApiError as exc:
-        return {
+        result = {
             "ok": False,
             "message": _format_kiwoom_error("VR 주문실행 실패", exc),
             "return_code": exc.return_code,
@@ -3158,8 +3159,14 @@ def execute_vr_web_orders(
                 username, "vr", profile_name, query_day
             ),
         }
+        return _with_api_order_result_telegram(username, "vr", profile_name, result)
     except Exception as exc:
-        return {"ok": False, "message": f"VR 주문실행 실패: {exc}"}
+        return _with_api_order_result_telegram(
+            username,
+            "vr",
+            profile_name,
+            {"ok": False, "message": f"VR 주문실행 실패: {exc}"},
+        )
 
 
 def execute_infinite_web_orders(
@@ -3262,7 +3269,7 @@ def execute_infinite_web_orders(
         )
         ok = bool(successes)
         result_label = "완료" if ok else "실패"
-        return {
+        result = {
             "ok": ok,
             "message": (
                 f"{action_label} {result_label}: 성공 {len(successes)}건 / 실패 {failed_count}건 "
@@ -3272,8 +3279,9 @@ def execute_infinite_web_orders(
             "order_executions": order_executions,
             "order_date": basis_date.isoformat(),
         }
+        return _with_api_order_result_telegram(username, "infinite", profile_name, result)
     except KiwoomApiError as exc:
-        return {
+        result = {
             "ok": False,
             "message": _format_kiwoom_error("무한매수법 주문실행 실패", exc),
             "return_code": exc.return_code,
@@ -3282,8 +3290,14 @@ def execute_infinite_web_orders(
                 username, "infinite", profile_name, basis_date
             ),
         }
+        return _with_api_order_result_telegram(username, "infinite", profile_name, result)
     except Exception as exc:
-        return {"ok": False, "message": f"무한매수법 주문실행 실패: {exc}"}
+        return _with_api_order_result_telegram(
+            username,
+            "infinite",
+            profile_name,
+            {"ok": False, "message": f"무한매수법 주문실행 실패: {exc}"},
+        )
 
 
 def execute_infinite_after_input_workflow(
@@ -3448,6 +3462,7 @@ def put_telegram_settings(username: str, payload: dict[str, Any]) -> dict[str, A
         send_vr_summary=bool(raw.get("send_vr_summary")),
         send_infinite_summary=bool(raw.get("send_infinite_summary")),
         send_order_status=bool(raw.get("send_order_status")),
+        send_api_order_result=bool(raw.get("send_api_order_result")),
         include_paused=bool(raw.get("include_paused")),
     )
     save_telegram_settings(settings, telegram_settings_path(username))
@@ -3491,6 +3506,86 @@ def _telegram_auto_enabled(settings: TelegramSettings, strategy: str) -> bool:
     if strategy == "vr":
         return bool(settings.auto_send_vr_orders)
     return False
+
+
+def _order_status_label(status: str) -> str:
+    labels = {
+        "sent": "주문접수",
+        "accepted": "미체결",
+        "filled": "체결",
+        "partial": "부분체결",
+        "canceled": "취소",
+        "unfilled_closed": "실패(미체결종료)",
+        "not_found": "실패(조회없음)",
+        "failed": "실패",
+    }
+    return labels.get(status, status or "-")
+
+
+def _send_api_order_result_telegram(
+    username: str,
+    strategy: str,
+    profile_name: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    settings = load_telegram_settings(telegram_settings_path(username))
+    if not settings.send_api_order_result:
+        return {"sent": False, "message": "API 주문결과 텔레그램 발송 꺼짐"}
+    if not settings.bot_token.strip() or not settings.chat_id.strip():
+        return {"sent": False, "message": "텔레그램 Bot Token 또는 Chat ID 없음"}
+    executions = result.get("order_executions") or []
+    status_counts: dict[str, int] = {}
+    for row in executions:
+        status = str(row.get("status") or "")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    label = "VR" if strategy == "vr" else "무한매수법"
+    result_label = "성공" if result.get("ok") else "실패"
+    lines = [
+        f"[API 주문결과] {label} {profile_name}",
+        f"상태: {result_label}",
+        f"주문일자: {result.get('order_date') or '-'}",
+        f"메시지: {result.get('message') or '-'}",
+    ]
+    if status_counts:
+        summary = " / ".join(
+            f"{_order_status_label(status)} {count}건"
+            for status, count in sorted(status_counts.items())
+        )
+        lines.append(f"요약: {summary}")
+    limit = _order_row_limit(settings)
+    for row in executions[:limit]:
+        price = "시장가" if row.get("price") in (None, "") else _telegram_money(row.get("price"), 2)
+        order_no = row.get("order_no") or "-"
+        message = str(row.get("message") or "").strip()
+        lines.append(
+            "- "
+            f"{_order_status_label(str(row.get('status') or ''))} "
+            f"{row.get('side_label') or '-'} {row.get('order_type') or '-'} "
+            f"{price} / {row.get('quantity') or '-'}주 / 주문번호 {order_no}"
+        )
+        if message:
+            lines.append(f"  {message[:180]}")
+    omitted = max(0, len(executions) - limit)
+    if omitted:
+        lines.append(f"- 외 {omitted}건")
+    try:
+        send_telegram_message(settings, "\n".join(lines)[:3900])
+        return {"sent": True, "message": "API 주문결과 텔레그램 발송 완료"}
+    except Exception as exc:
+        return {"sent": False, "message": f"API 주문결과 텔레그램 발송 실패: {exc}"}
+
+
+def _with_api_order_result_telegram(
+    username: str,
+    strategy: str,
+    profile_name: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    result = dict(result)
+    result["telegram_order_result"] = _send_api_order_result_telegram(
+        username, strategy, profile_name, result
+    )
+    return result
 
 
 def _order_row_limit(settings: TelegramSettings) -> int:

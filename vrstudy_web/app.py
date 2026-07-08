@@ -85,6 +85,7 @@ class TelegramSettingsRequest(BaseModel):
     send_vr_summary: bool = True
     send_infinite_summary: bool = True
     send_order_status: bool = True
+    send_api_order_result: bool = True
     include_paused: bool = False
 
 
