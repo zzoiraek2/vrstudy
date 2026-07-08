@@ -13,6 +13,7 @@ const state = {
   infiniteExecutionPreview: null,
   infiniteOrderResult: null,
   infiniteSchedule: null,
+  telegramSettings: null,
   dashboardCharts: {
     vrProfile: "",
     infiniteProfile: "",
@@ -151,9 +152,14 @@ function activateMainTab(tabId) {
   document.querySelectorAll(".tab-button").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tabId);
   });
+  document.querySelectorAll(".mobile-nav-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === tabId);
+  });
   document.querySelectorAll(".tab-page").forEach((page) => {
     page.classList.toggle("active", page.id === tabId);
   });
+  if (tabId === "mobile-auto-tab") renderMobileAutomation();
+  if (tabId === "mobile-settings-tab") renderMobileSettings();
   if (tabId === "dashboard-tab") {
     refreshDashboardCharts();
   }
@@ -584,6 +590,7 @@ function renderSchedule(kind, schedule) {
     ["최근 메시지", "last_message", (value) => value || "-"],
   ]);
   text(`${kind}-schedule-status`, schedule?.enabled ? "ON" : "OFF");
+  renderMobileAutomation();
 }
 
 function schedulePayload(kind) {
@@ -1220,6 +1227,74 @@ function renderMobileDashboard(data) {
   );
 }
 
+function mobileWeekdaysText(days) {
+  const labels = ["월", "화", "수", "목", "금", "토", "일"];
+  const values = Array.isArray(days) && days.length ? days : [0, 1, 2, 3, 4];
+  return values
+    .map((day) => labels[Number(day)])
+    .filter(Boolean)
+    .join(", ");
+}
+
+function mobileScheduleCard(title, schedule, modeText = "") {
+  const enabled = Boolean(schedule?.enabled);
+  return mobileProfileCard(
+    title,
+    [
+      ["상태", enabled ? "ON" : "OFF"],
+      ["시간", schedule?.time || "-"],
+      ["요일", mobileWeekdaysText(schedule?.weekdays)],
+      ["동작", modeText || "-"],
+      ["최근 실행", schedule?.last_run_at || "-"],
+    ],
+    enabled ? "활성" : "중지",
+  );
+}
+
+function renderMobileAutomation() {
+  const telegram = state.telegramSettings || {};
+  const telegramEnabled = Boolean(telegram.scheduled_send_enabled);
+  const telegramCard = mobileProfileCard(
+    "텔레그램 정기발송",
+    [
+      ["상태", telegramEnabled ? "ON" : "OFF"],
+      ["시간", telegram.scheduled_send_time || "-"],
+      ["요일", mobileWeekdaysText(telegram.scheduled_send_weekdays)],
+      ["최근 실행", telegram.scheduled_last_run_at || "-"],
+    ],
+    telegramEnabled ? "활성" : "중지",
+  );
+  setMobileCards("mobile-automation-cards", [
+    mobileScheduleCard("VR 자동 주문", state.vrSchedule, "주문실행"),
+    mobileScheduleCard(
+      "무한매수법 자동 주문",
+      state.infiniteSchedule,
+      state.infiniteSchedule?.mode === "execute_only" ? "주문실행" : "체결입력 후 주문실행",
+    ),
+    telegramCard,
+  ], "자동 실행 설정이 없습니다.");
+}
+
+function renderMobileSettings() {
+  const telegram = state.telegramSettings || {};
+  const dashboard = state.dashboard || {};
+  text("mobile-settings-user", dashboard.username || "-");
+  setMobileCards("mobile-settings-cards", [
+    mobileProfileCard("프로필", [
+      ["VR", `${state.vrProfiles.length}개`],
+      ["무한매수법", `${state.infiniteProfiles.length}개`],
+      ["선택 VR", state.selectedVr || "-"],
+      ["선택 무매", state.selectedInfinite || "-"],
+    ]),
+    mobileProfileCard("텔레그램", [
+      ["Bot Token", telegram.has_bot_token ? "저장됨" : "없음"],
+      ["Chat ID", telegram.chat_id ? "저장됨" : "없음"],
+      ["API 주문결과", telegram.send_api_order_result ? "발송" : "미발송"],
+      ["정기발송", telegram.scheduled_send_enabled ? "ON" : "OFF"],
+    ]),
+  ], "설정 정보가 없습니다.");
+}
+
 function renderDashboard(data) {
   state.dashboard = data;
   text("session-user", data.username);
@@ -1379,6 +1454,7 @@ async function loadVrProfiles() {
   if (state.selectedVr) await loadVrDetail(state.selectedVr);
   else updateProfileActionButtons("vr");
   await loadKiwoomForm("vr");
+  renderMobileSettings();
 }
 
 async function createVrProfile() {
@@ -1450,6 +1526,7 @@ async function loadInfiniteProfiles() {
   if (state.selectedInfinite) await loadInfiniteDetail(state.selectedInfinite);
   else updateProfileActionButtons("infinite");
   await loadKiwoomForm("infinite");
+  renderMobileSettings();
 }
 
 async function createInfiniteProfile() {
@@ -2226,8 +2303,11 @@ function telegramPayload() {
 
 async function loadTelegramForm() {
   const data = await api("/api/telegram");
+  state.telegramSettings = data;
   setFormValues(document.getElementById("telegram-form"), data);
   renderTelegramSchedule(data);
+  renderMobileAutomation();
+  renderMobileSettings();
   text(
     "telegram-message",
     data.has_bot_token ? `저장된 Bot Token: ${data.bot_token_masked}` : "저장된 Bot Token 없음",
@@ -2245,7 +2325,10 @@ async function saveTelegramForm(event) {
     method: "PUT",
     body: JSON.stringify(payload),
   });
+  state.telegramSettings = data;
   renderTelegramSchedule(data);
+  renderMobileAutomation();
+  renderMobileSettings();
   text("telegram-message", data.has_bot_token ? "텔레그램 저장 완료" : "텔레그램 저장 완료 / 토큰 없음");
 }
 
@@ -2269,17 +2352,22 @@ async function loadDashboard() {
   refreshDashboardCharts();
   await Promise.all([loadVrProfiles(), loadInfiniteProfiles()]);
   await loadTelegramForm();
+  renderMobileAutomation();
+  renderMobileSettings();
 }
 
 document.querySelectorAll(".tab-button").forEach((button) => {
+  button.addEventListener("click", () => activateMainTab(button.dataset.tab));
+});
+
+document.querySelectorAll(".mobile-nav-button").forEach((button) => {
+  button.addEventListener("click", () => activateMainTab(button.dataset.tab));
+});
+
+document.querySelectorAll("[data-mobile-tab]").forEach((button) => {
   button.addEventListener("click", () => {
-    document.querySelectorAll(".tab-button").forEach((item) => item.classList.remove("active"));
-    document.querySelectorAll(".tab-page").forEach((item) => item.classList.remove("active"));
-    button.classList.add("active");
-    document.getElementById(button.dataset.tab).classList.add("active");
-    if (button.dataset.tab === "dashboard-tab") {
-      refreshDashboardCharts();
-    }
+    activateMainTab(button.dataset.mobileTab);
+    if (button.dataset.mobileOpen) activateInnerPanel(button.dataset.mobileOpen);
   });
 });
 
@@ -2394,6 +2482,9 @@ document.getElementById("infinite-schedule-form").addEventListener("submit", sav
 document.getElementById("reload-telegram").addEventListener("click", loadTelegramForm);
 document.getElementById("test-telegram").addEventListener("click", testTelegram);
 document.getElementById("send-telegram-selected").addEventListener("click", sendTelegramSelected);
+document.getElementById("mobile-test-telegram").addEventListener("click", testTelegram);
+document.getElementById("mobile-send-telegram").addEventListener("click", sendTelegramSelected);
+document.getElementById("mobile-logout").addEventListener("click", () => logoutButton.click());
 document.getElementById("telegram-form").addEventListener("submit", saveTelegramForm);
 document.getElementById("profile-create-form").addEventListener("submit", submitProfileCreate);
 document.getElementById("profile-create-cancel").addEventListener("click", closeProfileCreateModal);

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VR Study Web</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260708_mobile_summary" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260708_mobile_nav" />
   </head>
   <body>
     <main class="shell">
@@ -802,7 +802,45 @@
             </form>
           </section>
         </section>
+
+        <section id="mobile-auto-tab" class="tab-page mobile-only-tab">
+          <section class="mobile-screen" aria-label="모바일 자동 실행">
+            <div class="mobile-summary-header">
+              <h2>자동 실행</h2>
+              <span>스케줄 / 알림</span>
+            </div>
+            <div id="mobile-automation-cards" class="mobile-card-list"></div>
+            <div class="mobile-action-row">
+              <button type="button" data-mobile-tab="vr-tab" data-mobile-open="vr-schedule-panel">VR 스케줄</button>
+              <button type="button" data-mobile-tab="infinite-tab" data-mobile-open="infinite-schedule-panel">무매 스케줄</button>
+              <button type="button" data-mobile-tab="telegram-tab">텔레그램</button>
+            </div>
+          </section>
+        </section>
+
+        <section id="mobile-settings-tab" class="tab-page mobile-only-tab">
+          <section class="mobile-screen" aria-label="모바일 설정">
+            <div class="mobile-summary-header">
+              <h2>설정</h2>
+              <span id="mobile-settings-user">-</span>
+            </div>
+            <div id="mobile-settings-cards" class="mobile-card-list"></div>
+            <div class="mobile-action-row">
+              <button id="mobile-test-telegram" type="button">텔레그램 테스트</button>
+              <button id="mobile-send-telegram" type="button">선택 항목 발송</button>
+              <button id="mobile-logout" type="button">로그아웃</button>
+            </div>
+          </section>
+        </section>
       </section>
+
+      <nav class="mobile-bottom-nav" aria-label="모바일 하단 메뉴">
+        <button class="mobile-nav-button active" type="button" data-tab="dashboard-tab">홈</button>
+        <button class="mobile-nav-button" type="button" data-tab="vr-tab">VR</button>
+        <button class="mobile-nav-button" type="button" data-tab="infinite-tab">무매</button>
+        <button class="mobile-nav-button" type="button" data-tab="mobile-auto-tab">자동</button>
+        <button class="mobile-nav-button" type="button" data-tab="mobile-settings-tab">설정</button>
+      </nav>
     </main>
     <div id="profile-create-modal" class="modal-overlay" hidden>
       <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="profile-create-title">
@@ -823,6 +861,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260708_mobile_summary"></script>
+    <script src="/assets/app.js?v=20260708_mobile_nav"></script>
   </body>
 </html>
