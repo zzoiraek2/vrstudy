@@ -159,6 +159,7 @@ class OrderExecutionRequest(BaseModel):
 class InfiniteScheduleRequest(BaseModel):
     enabled: bool = False
     time: str = "15:55"
+    mode: str = "after_input"
     weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
 
 

@@ -565,6 +565,8 @@ function renderInfiniteSchedule(schedule) {
   if (!form) return;
   form.elements.enabled.checked = Boolean(schedule?.enabled);
   form.elements.time.value = schedule?.time || "15:55";
+  const modeSelect = form.querySelector('select[name="mode"]');
+  if (modeSelect) modeSelect.value = schedule?.mode || "after_input";
   const weekdays = new Set((schedule?.weekdays || [0, 1, 2, 3, 4]).map((day) => String(day)));
   form.querySelectorAll('input[name="weekday"]').forEach((input) => {
     input.checked = weekdays.has(input.value);
@@ -586,6 +588,7 @@ function infiniteSchedulePayload() {
   return {
     enabled: Boolean(form.elements.enabled.checked),
     time: form.elements.time.value || "15:55",
+    mode: form.querySelector('select[name="mode"]')?.value || "after_input",
     weekdays,
   };
 }

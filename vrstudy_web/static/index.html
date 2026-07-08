@@ -556,6 +556,13 @@
                       <span>동작 시간</span>
                       <input name="time" type="time" />
                     </label>
+                    <label>
+                      <span>동작 방식</span>
+                      <select name="mode">
+                        <option value="after_input">체결입력 후 주문실행</option>
+                        <option value="orders_only">주문실행</option>
+                      </select>
+                    </label>
                     <div class="checkbox-grid schedule-weekdays">
                       <label><input name="weekday" type="checkbox" value="0" /> 월</label>
                       <label><input name="weekday" type="checkbox" value="1" /> 화</label>
@@ -733,6 +740,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260708_api_order_result_telegram"></script>
+    <script src="/assets/app.js?v=20260708_schedule_modes"></script>
   </body>
 </html>

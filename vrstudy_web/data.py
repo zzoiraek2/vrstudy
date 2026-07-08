@@ -467,6 +467,7 @@ def telegram_settings_path(username: str) -> Path:
 DEFAULT_INFINITE_SCHEDULE = {
     "enabled": False,
     "time": "15:55",
+    "mode": "after_input",
     "weekdays": [0, 1, 2, 3, 4],
     "last_attempt_date": "",
     "last_run_at": "",
@@ -501,6 +502,13 @@ def _validate_schedule_weekdays(value: Any) -> list[int]:
     return days
 
 
+def _validate_schedule_mode(value: Any) -> str:
+    mode = str(value or "after_input").strip()
+    if mode not in {"after_input", "orders_only"}:
+        raise ValueError("스케줄 동작은 체결입력 후 주문실행 또는 주문실행 중 하나여야 합니다.")
+    return mode
+
+
 def _read_infinite_schedule(username: str, profile_name: str) -> dict[str, Any]:
     path = _infinite_schedule_path(username, profile_name)
     data = dict(DEFAULT_INFINITE_SCHEDULE)
@@ -513,6 +521,7 @@ def _read_infinite_schedule(username: str, profile_name: str) -> dict[str, Any]:
             pass
     data["enabled"] = bool(data.get("enabled"))
     data["time"] = _validate_schedule_time(data.get("time") or DEFAULT_INFINITE_SCHEDULE["time"])
+    data["mode"] = _validate_schedule_mode(data.get("mode") or DEFAULT_INFINITE_SCHEDULE["mode"])
     data["weekdays"] = _validate_schedule_weekdays(data.get("weekdays") or DEFAULT_INFINITE_SCHEDULE["weekdays"])
     return data
 
@@ -536,6 +545,7 @@ def put_infinite_schedule(username: str, profile_name: str, payload: dict[str, A
         {
             "enabled": bool(payload.get("enabled", current["enabled"])),
             "time": _validate_schedule_time(payload.get("time", current["time"])),
+            "mode": _validate_schedule_mode(payload.get("mode", current["mode"])),
             "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
         }
     )
@@ -3421,9 +3431,15 @@ def run_due_infinite_schedules(
             }
             _write_infinite_schedule(username, profile_name, running)
             try:
-                result = execute_infinite_after_input_workflow(
-                    username, profile_name, source="schedule"
-                )
+                if schedule.get("mode") == "orders_only":
+                    result = execute_infinite_web_orders(username, profile_name)
+                    result["source"] = "schedule"
+                    result["schedule_mode"] = "orders_only"
+                else:
+                    result = execute_infinite_after_input_workflow(
+                        username, profile_name, source="schedule"
+                    )
+                    result["schedule_mode"] = "after_input"
             except Exception as exc:
                 result = {"ok": False, "message": f"자동 실행 실패: {exc}"}
             _mark_infinite_schedule_attempt(username, profile_name, running, now, result)
