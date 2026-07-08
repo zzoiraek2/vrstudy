@@ -435,14 +435,53 @@ def _read_vr_profile_files(
     profiles_dir = base_dir / "profiles" / "vr"
     profiles: list[dict[str, Any]] = []
     seen_names: set[str] = set()
-    for profile in list_profiles(profiles_dir):
-        if not include_default and profile.name == "default":
+    try:
+        profile_items = [
+            {
+                **asdict(profile),
+                "file": f"{_safe_profile_filename(profile.name)}.json",
+            }
+            for profile in list_profiles(profiles_dir)
+        ]
+    except Exception:
+        profile_items = []
+        if profiles_dir.exists():
+            for path in sorted(profiles_dir.glob("*.json")):
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    raw = {}
+                profile_name = str(raw.get("name") or path.stem)
+                item = dict(raw)
+                item["name"] = profile_name
+                item["symbol"] = str(raw.get("symbol") or raw.get("ticker") or "")
+                item["account_number"] = str(raw.get("account_number") or "")
+                item["profile_no"] = raw.get("profile_no")
+                item["calculation_paused"] = bool(raw.get("calculation_paused", False))
+                item["file"] = path.name
+                profile_items.append(item)
+    used_numbers: set[int] = set()
+    next_no = 1
+    for item in profile_items:
+        profile_name = str(item.get("name") or "")
+        if not include_default and profile_name == "default":
             continue
-        if profile.name in seen_names:
+        if profile_name in seen_names:
             continue
-        seen_names.add(profile.name)
-        item = asdict(profile)
-        item["file"] = f"{_safe_profile_filename(profile.name)}.json"
+        seen_names.add(profile_name)
+        if profile_name == "default":
+            item["profile_no"] = 0
+        else:
+            try:
+                profile_no = int(item.get("profile_no") or 0)
+            except (TypeError, ValueError):
+                profile_no = 0
+            if profile_no <= 0 or profile_no in used_numbers:
+                while next_no in used_numbers:
+                    next_no += 1
+                profile_no = next_no
+            item["profile_no"] = profile_no
+            used_numbers.add(profile_no)
         profiles.append(_json_value(item))
     return profiles
 
