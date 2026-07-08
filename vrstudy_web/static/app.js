@@ -1286,10 +1286,6 @@ function mobileStatusBanner(containerId, title, message, tone = "neutral") {
   container.appendChild(banner);
 }
 
-function mobileActionCard(title, items) {
-  return mobileProfileCard(title, items.map((item) => [item.label, item.value]), "오늘");
-}
-
 function countOrders(rowsData) {
   const quantity = (row) => Number(row.quantity ?? row.quantity_step ?? 0) || 0;
   return {
@@ -1326,8 +1322,6 @@ function orderResultMobileRows(result) {
 function renderMobileDashboard(data) {
   const summary = data.summary || {};
   const dueItems = data.due_items || [];
-  const vrProfiles = data.vr_profile_rows || [];
-  const infiniteProfiles = data.infinite_profile_rows || [];
   const enabledSchedules = [state.vrSchedule, state.infiniteSchedule, state.telegramSettings]
     .filter((item) => item?.enabled || item?.scheduled_send_enabled).length;
   const statusTitle = dueItems.length ? "입력 필요" : "정상";
@@ -1336,53 +1330,12 @@ function renderMobileDashboard(data) {
     : enabledSchedules ? "자동 실행 대기 중" : "오늘 필수 작업 없음";
   mobileStatusBanner("mobile-home-status", statusTitle, statusMessage, dueItems.length ? "warn" : "good");
   text("mobile-summary-date", data.today ? `오늘 ${data.today}` : "-");
-  text("mobile-vr-count", `${vrProfiles.length}개`);
-  text("mobile-infinite-count", `${infiniteProfiles.length}개`);
   setMobileCards("mobile-summary-cards", [
     mobileMetricCard("입력 필요", `${dueItems.length}건`, dueItems[0]?.profile || "없음"),
     mobileMetricCard("자동 ON", `${enabledSchedules}개`, "VR / 무매 / 텔레그램"),
     mobileMetricCard("현재자산", won(summary.total_value_krw), "원화 합산"),
     mobileMetricCard("손익", `${won(summary.total_profit_krw)} / ${pct(summary.total_return_rate)}`),
   ], "요약 데이터가 없습니다.");
-  setMobileCards(
-    "mobile-home-actions",
-    dueItems.length
-      ? [mobileActionCard("오늘 액션", dueItems.slice(0, 4).map((item) => ({
-        label: item.kind,
-        value: `${item.profile} ${item.issue}`,
-      })))]
-      : [mobileActionCard("오늘 액션", [
-        { label: "입력", value: "필요 없음" },
-        { label: "자동", value: enabledSchedules ? "대기 중" : "꺼짐" },
-      ])],
-    "오늘 액션이 없습니다.",
-  );
-  setMobileCards(
-    "mobile-vr-cards",
-    vrProfiles.slice(0, 6).map((profile) => mobileProfileCard(
-      profile.label,
-      [
-        ["자산", number(profile.account_total)],
-        ["손익", `${number(profile.profit)} / ${pct(profile.return_rate)}`],
-        ["마지막 / 미작성", `${profile.last_done_text || "-"} / ${profile.missing_text || "없음"}`],
-      ],
-      profile.symbol || "",
-    )),
-    "VR 프로필이 없습니다.",
-  );
-  setMobileCards(
-    "mobile-infinite-cards",
-    infiniteProfiles.slice(0, 6).map((profile) => mobileProfileCard(
-      profile.label,
-      [
-        ["평가금", number(profile.cumulative_value, 0)],
-        ["수익률 / 평단", `${pct(profile.return_rate)} / ${number(profile.avg_price)}`],
-        ["진행 / 미작성", `${profile.progress_text || "-"} / ${profile.missing_text || "없음"}`],
-      ],
-      profile.symbol || "",
-    )),
-    "무한매수법 프로필이 없습니다.",
-  );
 }
 
 function renderMobileOrderResult(kind) {

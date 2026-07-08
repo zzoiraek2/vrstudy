@@ -1338,7 +1338,7 @@ tbody tr.selected-data-row {
     gap: 10px;
   }
 
-  .dashboard-grid > .panel:nth-child(n + 3) {
+  .dashboard-grid > .panel:nth-child(n + 2) {
     display: none;
   }
 
