@@ -1121,6 +1121,105 @@ function refreshDashboardCharts() {
   resizeDashboardCharts();
 }
 
+function setMobileCards(containerId, items, emptyText) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = "";
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "mobile-empty";
+    empty.textContent = emptyText;
+    container.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => container.appendChild(item));
+}
+
+function mobileMetricCard(label, value, meta = "") {
+  const card = document.createElement("article");
+  card.className = "mobile-metric-card";
+  const labelNode = document.createElement("span");
+  labelNode.textContent = label;
+  const valueNode = document.createElement("strong");
+  valueNode.textContent = value;
+  card.append(labelNode, valueNode);
+  if (meta) {
+    const metaNode = document.createElement("small");
+    metaNode.textContent = meta;
+    card.appendChild(metaNode);
+  }
+  return card;
+}
+
+function mobileProfileCard(title, rows, status = "") {
+  const card = document.createElement("article");
+  card.className = "mobile-profile-card";
+  const header = document.createElement("div");
+  header.className = "mobile-profile-title";
+  const titleNode = document.createElement("strong");
+  titleNode.textContent = title;
+  header.appendChild(titleNode);
+  if (status) {
+    const statusNode = document.createElement("span");
+    statusNode.textContent = status;
+    header.appendChild(statusNode);
+  }
+  card.appendChild(header);
+  rows.forEach(([label, value]) => {
+    const row = document.createElement("div");
+    row.className = "mobile-profile-row";
+    const labelNode = document.createElement("span");
+    labelNode.textContent = label;
+    const valueNode = document.createElement("strong");
+    valueNode.textContent = value;
+    row.append(labelNode, valueNode);
+    card.appendChild(row);
+  });
+  return card;
+}
+
+function renderMobileDashboard(data) {
+  const summary = data.summary || {};
+  const dueItems = data.due_items || [];
+  const vrProfiles = data.vr_profile_rows || [];
+  const infiniteProfiles = data.infinite_profile_rows || [];
+  text("mobile-summary-date", data.today ? `오늘 ${data.today}` : "-");
+  text("mobile-vr-count", `${vrProfiles.length}개`);
+  text("mobile-infinite-count", `${infiniteProfiles.length}개`);
+  setMobileCards("mobile-summary-cards", [
+    mobileMetricCard("현재자산", won(summary.total_value_krw), "원화 합산"),
+    mobileMetricCard("손익 / 수익률", `${won(summary.total_profit_krw)} / ${pct(summary.total_return_rate)}`),
+    mobileMetricCard("미작성", `${dueItems.length}개`, dueItems[0]?.profile || ""),
+    mobileMetricCard("예수금", won(summary.total_cash_krw), pct(summary.total_cash_ratio)),
+  ], "요약 데이터가 없습니다.");
+  setMobileCards(
+    "mobile-vr-cards",
+    vrProfiles.slice(0, 6).map((profile) => mobileProfileCard(
+      profile.label,
+      [
+        ["자산", number(profile.account_total)],
+        ["손익", `${number(profile.profit)} / ${pct(profile.return_rate)}`],
+        ["마지막 / 미작성", `${profile.last_done_text || "-"} / ${profile.missing_text || "없음"}`],
+      ],
+      profile.symbol || "",
+    )),
+    "VR 프로필이 없습니다.",
+  );
+  setMobileCards(
+    "mobile-infinite-cards",
+    infiniteProfiles.slice(0, 6).map((profile) => mobileProfileCard(
+      profile.label,
+      [
+        ["평가금", number(profile.cumulative_value, 0)],
+        ["수익률 / 평단", `${pct(profile.return_rate)} / ${number(profile.avg_price)}`],
+        ["진행 / 미작성", `${profile.progress_text || "-"} / ${profile.missing_text || "없음"}`],
+      ],
+      profile.symbol || "",
+    )),
+    "무한매수법 프로필이 없습니다.",
+  );
+}
+
 function renderDashboard(data) {
   state.dashboard = data;
   text("session-user", data.username);
@@ -1135,6 +1234,7 @@ function renderDashboard(data) {
   text("dashboard-due-count", `${dueItems.length}개`);
   text("dashboard-due-label", `${dueItems.length}개`);
   text("dashboard-fx-rate", number(summary.fx_rate));
+  renderMobileDashboard(data);
 
   rows("dashboard-summary-rows", [
     ["운용 프로필", `VR ${(data.vr_profile_rows || []).length}개 / 무매 ${(data.infinite_profile_rows || []).length}개`],

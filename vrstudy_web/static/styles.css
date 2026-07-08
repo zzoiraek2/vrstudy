@@ -316,6 +316,94 @@ input[readonly]:focus,
   max-height: 240px;
 }
 
+.mobile-summary {
+  display: none;
+}
+
+.mobile-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mobile-summary-header span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-summary-grid,
+.mobile-card-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mobile-metric-card,
+.mobile-profile-card,
+.mobile-empty {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.mobile-metric-card {
+  display: grid;
+  gap: 5px;
+  min-height: 76px;
+  padding: 12px;
+}
+
+.mobile-metric-card span,
+.mobile-metric-card small,
+.mobile-profile-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mobile-metric-card strong {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.mobile-profile-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-profile-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.mobile-profile-title,
+.mobile-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-profile-title span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-profile-row strong {
+  text-align: right;
+}
+
+.mobile-empty {
+  padding: 12px;
+  color: var(--muted);
+}
+
 .panel {
   min-width: 0;
   border: 1px solid var(--line);
@@ -1055,5 +1143,71 @@ tbody tr.selected-data-row {
 
   .table-wrap {
     max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  #app-view {
+    padding: 10px;
+  }
+
+  .topbar {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .session-box {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .metrics {
+    display: none;
+  }
+
+  .mobile-summary {
+    display: grid;
+    gap: 14px;
+  }
+
+  .dashboard-details,
+  .dashboard-charts {
+    display: none;
+  }
+
+  .dashboard-grid {
+    gap: 10px;
+  }
+
+  .dashboard-grid > .panel:nth-child(n + 3) {
+    display: none;
+  }
+
+  .dashboard-table {
+    height: auto;
+    max-height: 220px;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .tabs,
+  .inner-tabs,
+  .order-panel-tabs {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .tab-button,
+  .inner-tab,
+  .order-panel-tab {
+    flex: 0 0 auto;
+  }
+
+  .mobile-summary-grid {
+    grid-template-columns: 1fr;
   }
 }

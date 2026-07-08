@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VR Study Web</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260708_schedule_toggle_color" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260708_mobile_summary" />
   </head>
   <body>
     <main class="shell">
@@ -71,6 +71,28 @@
               <span>적용 환율</span>
               <strong id="dashboard-fx-rate">0</strong>
             </article>
+          </section>
+
+          <section class="mobile-summary" aria-label="모바일 핵심 요약">
+            <div class="mobile-summary-header">
+              <h2>핵심 요약</h2>
+              <span id="mobile-summary-date">-</span>
+            </div>
+            <div class="mobile-summary-grid" id="mobile-summary-cards"></div>
+            <div class="mobile-profile-list">
+              <div class="mobile-summary-header">
+                <h2>VR</h2>
+                <span id="mobile-vr-count">0개</span>
+              </div>
+              <div id="mobile-vr-cards" class="mobile-card-list"></div>
+            </div>
+            <div class="mobile-profile-list">
+              <div class="mobile-summary-header">
+                <h2>무한매수법</h2>
+                <span id="mobile-infinite-count">0개</span>
+              </div>
+              <div id="mobile-infinite-cards" class="mobile-card-list"></div>
+            </div>
           </section>
 
           <section class="dashboard-details" aria-label="선택 프로필 상세">
@@ -801,6 +823,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260708_vr_schedule"></script>
+    <script src="/assets/app.js?v=20260708_mobile_summary"></script>
   </body>
 </html>
