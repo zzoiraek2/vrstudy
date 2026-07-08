@@ -8,6 +8,7 @@ const state = {
   vrDetail: null,
   vrOrderPreview: null,
   vrOrderResult: null,
+  vrSchedule: null,
   infiniteDetail: null,
   infiniteExecutionPreview: null,
   infiniteOrderResult: null,
@@ -565,8 +566,8 @@ function formValues(form) {
   return values;
 }
 
-function renderInfiniteSchedule(schedule) {
-  const form = document.getElementById("infinite-schedule-form");
+function renderSchedule(kind, schedule) {
+  const form = document.getElementById(`${kind}-schedule-form`);
   if (!form) return;
   form.elements.enabled.checked = Boolean(schedule?.enabled);
   form.elements.time.value = schedule?.time || "15:55";
@@ -576,56 +577,87 @@ function renderInfiniteSchedule(schedule) {
   form.querySelectorAll('input[name="weekday"]').forEach((input) => {
     input.checked = weekdays.has(input.value);
   });
-  renderFields("infinite-schedule-last", schedule || {}, [
+  renderFields(`${kind}-schedule-last`, schedule || {}, [
     ["상태", "last_status", (value) => value || "-"],
     ["최근 시도일", "last_attempt_date", (value) => value || "-"],
     ["최근 실행시각", "last_run_at", (value) => value || "-"],
     ["최근 메시지", "last_message", (value) => value || "-"],
   ]);
-  text("infinite-schedule-status", schedule?.enabled ? "ON" : "OFF");
+  text(`${kind}-schedule-status`, schedule?.enabled ? "ON" : "OFF");
 }
 
-function infiniteSchedulePayload() {
-  const form = document.getElementById("infinite-schedule-form");
+function schedulePayload(kind) {
+  const form = document.getElementById(`${kind}-schedule-form`);
   const weekdays = [...form.querySelectorAll('input[name="weekday"]:checked')]
     .map((input) => Number.parseInt(input.value, 10))
     .filter((value) => Number.isFinite(value));
-  return {
+  const payload = {
     enabled: Boolean(form.elements.enabled.checked),
     time: form.elements.time.value || "15:55",
-    mode: form.querySelector('select[name="mode"]')?.value || "after_input",
     weekdays,
   };
+  const modeSelect = form.querySelector('select[name="mode"]');
+  if (modeSelect) payload.mode = modeSelect.value || "after_input";
+  return payload;
 }
 
-async function loadInfiniteSchedule(profileName = state.selectedInfinite) {
+function setScheduleState(kind, schedule) {
+  if (kind === "vr") state.vrSchedule = schedule;
+  else state.infiniteSchedule = schedule;
+}
+
+function selectedScheduleProfile(kind) {
+  return kind === "vr" ? state.selectedVr : state.selectedInfinite;
+}
+
+async function loadSchedule(kind, profileName = selectedScheduleProfile(kind)) {
   if (!profileName) return;
-  const schedule = await api(`/api/infinite/profiles/${encodeURIComponent(profileName)}/schedule`);
-  state.infiniteSchedule = schedule;
-  renderInfiniteSchedule(schedule);
+  const schedule = await api(`/api/${kind}/profiles/${encodeURIComponent(profileName)}/schedule`);
+  setScheduleState(kind, schedule);
+  renderSchedule(kind, schedule);
 }
 
-async function saveInfiniteSchedule(event) {
+async function saveSchedule(kind, event) {
   event.preventDefault();
-  const profile = state.selectedInfinite;
+  const profile = selectedScheduleProfile(kind);
   if (!profile) return;
-  const payload = infiniteSchedulePayload();
+  const payload = schedulePayload(kind);
   if (!payload.weekdays.length) {
-    text("infinite-schedule-message", "요일을 1개 이상 선택하세요.");
+    text(`${kind}-schedule-message`, "요일을 1개 이상 선택하세요.");
     return;
   }
-  text("infinite-schedule-message", "스케줄 저장 중...");
+  text(`${kind}-schedule-message`, "스케줄 저장 중...");
   try {
-    const schedule = await api(`/api/infinite/profiles/${encodeURIComponent(profile)}/schedule`, {
+    const schedule = await api(`/api/${kind}/profiles/${encodeURIComponent(profile)}/schedule`, {
       method: "PUT",
       body: JSON.stringify(payload),
     });
-    state.infiniteSchedule = schedule;
-    renderInfiniteSchedule(schedule);
-    text("infinite-schedule-message", "스케줄 저장 완료");
+    setScheduleState(kind, schedule);
+    renderSchedule(kind, schedule);
+    text(`${kind}-schedule-message`, "스케줄 저장 완료");
   } catch (error) {
-    text("infinite-schedule-message", error.message);
+    text(`${kind}-schedule-message`, error.message);
   }
+}
+
+function renderInfiniteSchedule(schedule) {
+  renderSchedule("infinite", schedule);
+}
+
+async function loadInfiniteSchedule(profileName = state.selectedInfinite) {
+  return loadSchedule("infinite", profileName);
+}
+
+async function saveInfiniteSchedule(event) {
+  return saveSchedule("infinite", event);
+}
+
+async function loadVrSchedule(profileName = state.selectedVr) {
+  return loadSchedule("vr", profileName);
+}
+
+async function saveVrSchedule(event) {
+  return saveSchedule("vr", event);
 }
 
 function currentProfile(kind) {
@@ -1948,6 +1980,7 @@ async function loadVrDetail(profileName) {
   });
   renderVrOrderLevels(detail.order_levels || []);
   updateVrSellOrderMode();
+  await loadVrSchedule(profileName);
   const vrOrderButton = document.getElementById("vr-execute-orders");
   if (vrOrderButton) vrOrderButton.disabled = !detail.order_executable;
   const vrReorderButton = document.getElementById("vr-reorder-orders");
@@ -2256,6 +2289,7 @@ document.getElementById("infinite-reorder-orders").addEventListener("click", () 
 document.getElementById("infinite-execute-after-input").addEventListener("click", executeInfiniteAfterInput);
 document.getElementById("vr-api-form").addEventListener("submit", (event) => saveKiwoomForm("vr", event));
 document.getElementById("infinite-api-form").addEventListener("submit", (event) => saveKiwoomForm("infinite", event));
+document.getElementById("vr-schedule-form").addEventListener("submit", saveVrSchedule);
 document.getElementById("infinite-schedule-form").addEventListener("submit", saveInfiniteSchedule);
 document.getElementById("reload-telegram").addEventListener("click", loadTelegramForm);
 document.getElementById("test-telegram").addEventListener("click", testTelegram);

@@ -22,6 +22,7 @@ from .data import (
     get_kiwoom_credentials,
     get_infinite_schedule,
     get_telegram_settings,
+    get_vr_schedule,
     infinite_profile_detail,
     infinite_profiles,
     list_kiwoom_credentials,
@@ -33,10 +34,12 @@ from .data import (
     put_infinite_schedule,
     put_kiwoom_credentials,
     put_telegram_settings,
+    put_vr_schedule,
     rename_infinite_web_profile,
     rename_vr_web_profile,
     run_due_infinite_schedules,
     run_due_telegram_schedules,
+    run_due_vr_schedules,
     save_infinite_web_execution,
     save_vr_web_cycle_input,
     send_telegram_selected_message,
@@ -171,6 +174,12 @@ class InfiniteScheduleRequest(BaseModel):
     weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
 
 
+class VrScheduleRequest(BaseModel):
+    enabled: bool = False
+    time: str = "15:55"
+    weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+
+
 app = FastAPI(title="VR Study Web")
 ensure_user_dirs()
 SESSION_SECRET = ensure_session_secret(session_secret_path())
@@ -183,6 +192,7 @@ async def _infinite_schedule_loop() -> None:
     while True:
         try:
             usernames = list(load_users().keys())
+            await asyncio.to_thread(run_due_vr_schedules, usernames)
             await asyncio.to_thread(run_due_infinite_schedules, usernames)
             await asyncio.to_thread(run_due_telegram_schedules, usernames)
         except Exception:
@@ -341,6 +351,28 @@ def api_vr_cycle_input_save(
 ) -> dict[str, object]:
     try:
         return save_vr_web_cycle_input(username, profile_name, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/vr/profiles/{profile_name}/schedule")
+def api_vr_schedule_get(
+    profile_name: str, username: str = Depends(current_username)
+) -> dict[str, object]:
+    try:
+        return get_vr_schedule(username, profile_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/vr/profiles/{profile_name}/schedule")
+def api_vr_schedule_put(
+    profile_name: str,
+    payload: VrScheduleRequest,
+    username: str = Depends(current_username),
+) -> dict[str, object]:
+    try:
+        return put_vr_schedule(username, profile_name, payload.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

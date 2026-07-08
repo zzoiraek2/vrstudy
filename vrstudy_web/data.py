@@ -548,6 +548,26 @@ DEFAULT_INFINITE_SCHEDULE = {
 }
 
 
+DEFAULT_VR_SCHEDULE = {
+    "enabled": False,
+    "time": "15:55",
+    "weekdays": [0, 1, 2, 3, 4],
+    "last_attempt_date": "",
+    "last_run_at": "",
+    "last_status": "",
+    "last_message": "",
+}
+
+
+def _vr_schedule_path(username: str, profile_name: str) -> Path:
+    return (
+        user_data_dir(username)
+        / "schedules"
+        / "vr"
+        / f"{_safe_profile_filename(profile_name)}.json"
+    )
+
+
 def _infinite_schedule_path(username: str, profile_name: str) -> Path:
     return (
         user_data_dir(username)
@@ -596,6 +616,47 @@ def _read_infinite_schedule(username: str, profile_name: str) -> dict[str, Any]:
     data["mode"] = _validate_schedule_mode(data.get("mode") or DEFAULT_INFINITE_SCHEDULE["mode"])
     data["weekdays"] = _validate_schedule_weekdays(data.get("weekdays") or DEFAULT_INFINITE_SCHEDULE["weekdays"])
     return data
+
+
+def _read_vr_schedule(username: str, profile_name: str) -> dict[str, Any]:
+    path = _vr_schedule_path(username, profile_name)
+    data = dict(DEFAULT_VR_SCHEDULE)
+    if path.exists():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
+            if isinstance(raw, dict):
+                data.update(raw)
+        except json.JSONDecodeError:
+            pass
+    data["enabled"] = bool(data.get("enabled"))
+    data["time"] = _validate_schedule_time(data.get("time") or DEFAULT_VR_SCHEDULE["time"])
+    data["weekdays"] = _validate_schedule_weekdays(data.get("weekdays") or DEFAULT_VR_SCHEDULE["weekdays"])
+    return data
+
+
+def _write_vr_schedule(username: str, profile_name: str, data: dict[str, Any]) -> dict[str, Any]:
+    path = _vr_schedule_path(username, profile_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return data
+
+
+def get_vr_schedule(username: str, profile_name: str) -> dict[str, Any]:
+    vr_profile_detail(username, profile_name)
+    return _read_vr_schedule(username, profile_name)
+
+
+def put_vr_schedule(username: str, profile_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    vr_profile_detail(username, profile_name)
+    current = _read_vr_schedule(username, profile_name)
+    current.update(
+        {
+            "enabled": bool(payload.get("enabled", current["enabled"])),
+            "time": _validate_schedule_time(payload.get("time", current["time"])),
+            "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
+        }
+    )
+    return _write_vr_schedule(username, profile_name, current)
 
 
 def _write_infinite_schedule(username: str, profile_name: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -3480,6 +3541,78 @@ def _mark_infinite_schedule_attempt(
         updated["last_status"] = "skipped"
     updated["last_message"] = str(result.get("message") or "")[:1000]
     return _write_infinite_schedule(username, profile_name, updated)
+
+
+def _mark_vr_schedule_attempt(
+    username: str,
+    profile_name: str,
+    schedule: dict[str, Any],
+    now: datetime,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    updated = dict(schedule)
+    updated["last_attempt_date"] = now.date().isoformat()
+    updated["last_run_at"] = now.isoformat(timespec="seconds")
+    updated["last_status"] = "ok" if result.get("ok") else "failed"
+    if result.get("skipped"):
+        updated["last_status"] = "skipped"
+    updated["last_message"] = str(result.get("message") or "")[:1000]
+    return _write_vr_schedule(username, profile_name, updated)
+
+
+def run_due_vr_schedules(
+    usernames: list[str], now: datetime | None = None
+) -> list[dict[str, Any]]:
+    now = now or datetime.now(timezone(timedelta(hours=9)))
+    today = now.date().isoformat()
+    current_time = now.strftime("%H:%M")
+    results: list[dict[str, Any]] = []
+    for username in usernames:
+        try:
+            profiles = vr_profiles(username)
+        except Exception as exc:
+            results.append({"ok": False, "username": username, "message": str(exc)})
+            continue
+        for profile in profiles:
+            profile_name = str(profile.get("name") or "").strip()
+            if not profile_name:
+                continue
+            try:
+                schedule = _read_vr_schedule(username, profile_name)
+            except Exception as exc:
+                results.append(
+                    {
+                        "ok": False,
+                        "username": username,
+                        "profile": profile_name,
+                        "message": f"스케줄 읽기 실패: {exc}",
+                    }
+                )
+                continue
+            if not schedule.get("enabled"):
+                continue
+            if now.weekday() not in schedule.get("weekdays", []):
+                continue
+            if current_time < str(schedule.get("time") or "00:00"):
+                continue
+            if schedule.get("last_attempt_date") == today:
+                continue
+            running = {
+                **schedule,
+                "last_attempt_date": today,
+                "last_run_at": now.isoformat(timespec="seconds"),
+                "last_status": "running",
+                "last_message": "자동 실행 중...",
+            }
+            _write_vr_schedule(username, profile_name, running)
+            try:
+                result = execute_vr_web_orders(username, profile_name)
+                result["source"] = "schedule"
+            except Exception as exc:
+                result = {"ok": False, "message": f"자동 실행 실패: {exc}"}
+            _mark_vr_schedule_attempt(username, profile_name, running, now, result)
+            results.append({"username": username, "profile": profile_name, **result})
+    return results
 
 
 def run_due_infinite_schedules(

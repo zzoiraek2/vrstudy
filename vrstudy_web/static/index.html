@@ -242,6 +242,7 @@
                 <button class="inner-tab" type="button" data-panel="vr-cycle-panel">주차별 입력</button>
                 <button class="inner-tab" type="button" data-panel="vr-api-panel">API</button>
                 <button class="inner-tab" type="button" data-panel="vr-fill-panel">체결내역</button>
+                <button class="inner-tab" type="button" data-panel="vr-schedule-panel">스케줄</button>
               </nav>
 
               <section id="vr-settings-panel" class="inner-panel active">
@@ -323,6 +324,43 @@
                     </table>
                   </div>
                   <p id="vr-fill-message" class="message muted-message padded-message"></p>
+                </section>
+              </section>
+
+              <section id="vr-schedule-panel" class="inner-panel">
+                <section class="panel compact-panel">
+                  <div class="panel-header">
+                    <h2>자동 실행 스케줄</h2>
+                    <span id="vr-schedule-status">프로필별 저장</span>
+                  </div>
+                  <form id="vr-schedule-form" class="settings-form one-col">
+                    <label class="schedule-toggle">
+                      <span>자동 실행</span>
+                      <input name="enabled" type="checkbox" />
+                    </label>
+                    <label>
+                      <span>동작 시간</span>
+                      <input name="time" type="time" />
+                    </label>
+                    <div class="readonly-field">
+                      <span>동작 방식</span>
+                      <strong>주문실행</strong>
+                    </div>
+                    <div class="checkbox-grid schedule-weekdays">
+                      <label><input name="weekday" type="checkbox" value="0" /> 월</label>
+                      <label><input name="weekday" type="checkbox" value="1" /> 화</label>
+                      <label><input name="weekday" type="checkbox" value="2" /> 수</label>
+                      <label><input name="weekday" type="checkbox" value="3" /> 목</label>
+                      <label><input name="weekday" type="checkbox" value="4" /> 금</label>
+                      <label><input name="weekday" type="checkbox" value="5" /> 토</label>
+                      <label><input name="weekday" type="checkbox" value="6" /> 일</label>
+                    </div>
+                    <div class="readonly-form single" id="vr-schedule-last"></div>
+                    <div class="form-actions">
+                      <button type="submit">스케줄 저장</button>
+                    </div>
+                    <p id="vr-schedule-message" class="message muted-message"></p>
+                  </form>
                 </section>
               </section>
             </section>
@@ -763,6 +801,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260708_order_datetime"></script>
+    <script src="/assets/app.js?v=20260708_vr_schedule"></script>
   </body>
 </html>
