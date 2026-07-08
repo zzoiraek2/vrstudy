@@ -3814,6 +3814,15 @@ def build_telegram_summary_message(username: str, settings: TelegramSettings) ->
 
     if settings.send_dashboard:
         summary = dashboard.get("summary") or {}
+        vr_value_usd = sum(float(row.get("account_total") or 0) for row in vr_rows)
+        vr_profit_usd = sum(float(row.get("profit") or 0) for row in vr_rows)
+        vr_cash_usd = sum(float(row.get("cash_amount") or 0) for row in vr_rows)
+        infinite_value_krw = sum(
+            float(row.get("cumulative_value") or 0) for row in infinite_rows_data
+        )
+        infinite_cash_usd = sum(
+            float(row.get("cash_amount") or 0) for row in infinite_rows_data
+        )
         sections.extend(
             [
                 "",
@@ -3824,6 +3833,9 @@ def build_telegram_summary_message(username: str, settings: TelegramSettings) ->
                 f"- 손익/수익률: {_telegram_money(summary.get('total_profit_krw'))} / {_telegram_percent(summary.get('total_return_rate'))}",
                 f"- 총 매수금: {_telegram_money(summary.get('total_bought_krw'))}",
                 f"- 예수금/비율: {_telegram_money(summary.get('total_cash_krw'))} / {_telegram_percent(summary.get('total_cash_ratio'))}",
+                f"- 입력 필요: VR {summary.get('vr_due_count') or 0}개 / 무매 {summary.get('infinite_due_count') or 0}개",
+                f"- VR 합계(USD): 자산 {_telegram_money(vr_value_usd, 2)} / 손익 {_telegram_money(vr_profit_usd, 2)} / Pool {_telegram_money(vr_cash_usd, 2)}",
+                f"- 무매 합계: 평가 {_telegram_money(infinite_value_krw)}원 / 현금 {_telegram_money(infinite_cash_usd, 2)} USD",
             ]
         )
 
@@ -3832,8 +3844,11 @@ def build_telegram_summary_message(username: str, settings: TelegramSettings) ->
         if vr_rows:
             for row in vr_rows[:8]:
                 sections.append(
-                    f"- {row['label']}: 계좌 {_telegram_money(row.get('account_total'), 2)}, "
-                    f"손익 {_telegram_money(row.get('profit'), 2)} / {_telegram_percent(row.get('return_rate'))}, "
+                    f"- {row['label']}({row.get('symbol') or '-'}) "
+                    f"마지막차수 {row.get('last_done_text') or '-'} / "
+                    f"수량 {row.get('shares') or 0} / "
+                    f"Pool {_telegram_money(row.get('cash_amount'), 2)} / "
+                    f"수익률 {_telegram_percent(row.get('return_rate'))} / "
                     f"미작성 {row.get('missing_text') or '없음'}"
                 )
             if len(vr_rows) > 8:
@@ -3846,9 +3861,13 @@ def build_telegram_summary_message(username: str, settings: TelegramSettings) ->
         if infinite_rows_data:
             for row in infinite_rows_data[:8]:
                 sections.append(
-                    f"- {row['label']}: 평가 {_telegram_money(row.get('cumulative_value'))}, "
-                    f"평단 {_telegram_money(row.get('avg_price'), 4)}, "
-                    f"{row.get('progress_text') or '-'}, 미작성 {row.get('missing_text') or '없음'}"
+                    f"- {row['label']}({row.get('symbol') or '-'}) "
+                    f"{row.get('progress_text') or '-'} / "
+                    f"평단 {_telegram_money(row.get('avg_price'), 4)} / "
+                    f"현재가 {_telegram_money(row.get('current_price'), 4)} / "
+                    f"수량 {row.get('cumulative_qty') or 0} / "
+                    f"현금 {_telegram_money(row.get('cash_amount'), 2)} / "
+                    f"미작성 {row.get('missing_text') or '없음'}"
                 )
             if len(infinite_rows_data) > 8:
                 sections.append(f"- 외 {len(infinite_rows_data) - 8}개")
