@@ -97,6 +97,11 @@ function pct(value) {
   return `${number(Number(value) * 100, 2)}%`;
 }
 
+function dateTimeText(value, fallback = "-") {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value).replace("T", " ").replace(/\.\d+$/, "").slice(0, 19);
+}
+
 function won(value) {
   if (value === null || value === undefined || value === "") return "-";
   return `${number(value, 0)}원`;
@@ -1534,7 +1539,7 @@ function renderOrderResult(kind, result) {
       order_no: "",
       message: orderResultStatusText(result),
     }], 8, (row) => [
-      row.order_date || "-",
+      dateTimeText(row.created_at, row.order_datetime || row.order_date || "-"),
       statusLabel(row.status),
       row.side_label,
       row.order_type,
@@ -1546,7 +1551,7 @@ function renderOrderResult(kind, result) {
     return;
   }
   rows(`${kind}-order-result-rows`, executionRows, 8, (row) => [
-    row.order_date || "-",
+    dateTimeText(row.created_at, row.order_datetime || row.order_date || "-"),
     statusLabel(orderResultStatus(row)),
     row.side_label,
     row.order_type,

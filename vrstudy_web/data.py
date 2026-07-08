@@ -241,12 +241,23 @@ def _recent_order_execution_rows(
     strategy: str,
     profile_name: str,
     order_date: date | str,
+    since: datetime | None = None,
 ) -> list[dict[str, Any]]:
     if not _order_execution_table_exists(con):
         return []
+    filters = """
+        WHERE strategy = ?
+          AND profile_name = ?
+          AND order_date = ?
+          AND status IN ('sent', 'failed')
+    """
+    params: list[Any] = [strategy, profile_name, _order_execution_date(order_date)]
+    if since is not None:
+        filters += "\n          AND created_at >= ?"
+        params.append(since)
     return _query_dicts(
         con,
-        """
+        f"""
         SELECT
             created_at,
             order_date,
@@ -261,13 +272,10 @@ def _recent_order_execution_rows(
             order_no,
             message
         FROM web_order_executions
-        WHERE strategy = ?
-          AND profile_name = ?
-          AND order_date = ?
-          AND status IN ('sent', 'failed')
+        {filters}
         ORDER BY id DESC
         """,
-        (strategy, profile_name, _order_execution_date(order_date)),
+        tuple(params),
     )
 
 
@@ -357,13 +365,17 @@ def _order_failure_message(exc: Exception) -> str:
 
 
 def _order_executions_for_response(
-    username: str, strategy: str, profile_name: str, order_date: date | str
+    username: str,
+    strategy: str,
+    profile_name: str,
+    order_date: date | str,
+    since: datetime | None = None,
 ) -> list[dict[str, Any]]:
     con = _connect_readonly(user_db_path(username))
     if con is None:
         return []
     try:
-        return _recent_order_execution_rows(con, strategy, profile_name, order_date)
+        return _recent_order_execution_rows(con, strategy, profile_name, order_date, since)
     finally:
         con.close()
 
@@ -3042,6 +3054,8 @@ def execute_vr_web_orders(
     profile_data = _read_profile_file(user_data_dir(username), "vr", profile_name)
     profile = _profile_from_data(profile_data)
     query_day = date.today()
+    attempt_started_at = datetime.now()
+    order_datetime = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
     mode, manual_count = _normalize_vr_sell_order_mode(sell_mode, sell_row_count)
     con = _connect_readonly(user_db_path(username))
     if con is None:
@@ -3139,7 +3153,7 @@ def execute_vr_web_orders(
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
         action_label = "VR 재주문" if force_reorder else "VR 주문실행"
         order_executions = _order_executions_for_response(
-            username, "vr", profile_name, query_day
+            username, "vr", profile_name, query_day, attempt_started_at
         )
         try:
             order_executions = _verify_order_execution_rows(
@@ -3168,6 +3182,7 @@ def execute_vr_web_orders(
             "successes": successes,
             "order_executions": order_executions,
             "order_date": query_day.isoformat(),
+            "order_datetime": order_datetime,
             "summary": {
                 "original": original_summary,
                 "deducted": deducted_summary,
@@ -3187,8 +3202,10 @@ def execute_vr_web_orders(
             "return_code": exc.return_code,
             "return_msg": exc.return_msg,
             "order_executions": _order_executions_for_response(
-                username, "vr", profile_name, query_day
+                username, "vr", profile_name, query_day, attempt_started_at
             ),
+            "order_date": query_day.isoformat(),
+            "order_datetime": order_datetime,
         }
         return _with_api_order_result_telegram(username, "vr", profile_name, result)
     except Exception as exc:
@@ -3196,7 +3213,15 @@ def execute_vr_web_orders(
             username,
             "vr",
             profile_name,
-            {"ok": False, "message": f"VR 주문실행 실패: {exc}"},
+            {
+                "ok": False,
+                "message": f"VR 주문실행 실패: {exc}",
+                "order_date": query_day.isoformat(),
+                "order_datetime": order_datetime,
+                "order_executions": _order_executions_for_response(
+                    username, "vr", profile_name, query_day, attempt_started_at
+                ),
+            },
         )
 
 
@@ -3209,6 +3234,8 @@ def execute_infinite_web_orders(
     setting = _infinite_setting_from_data(
         infinite_profile_detail(username, profile_name).get("profile") or {"name": profile_name}
     )
+    attempt_started_at = datetime.now()
+    order_datetime = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
     con = _connect_readonly(user_db_path(username))
     if con is None:
         return {"ok": False, "message": "무한매수법 주문실행 실패: 데이터베이스가 없습니다."}
@@ -3280,7 +3307,7 @@ def execute_infinite_web_orders(
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
         action_label = "무한매수법 재주문" if force_reorder else "무한매수법 주문실행"
         order_executions = _order_executions_for_response(
-            username, "infinite", profile_name, basis_date
+            username, "infinite", profile_name, basis_date, attempt_started_at
         )
         try:
             order_executions = _verify_order_execution_rows(
@@ -3309,6 +3336,7 @@ def execute_infinite_web_orders(
             "successes": successes,
             "order_executions": order_executions,
             "order_date": basis_date.isoformat(),
+            "order_datetime": order_datetime,
         }
         return _with_api_order_result_telegram(username, "infinite", profile_name, result)
     except KiwoomApiError as exc:
@@ -3318,8 +3346,10 @@ def execute_infinite_web_orders(
             "return_code": exc.return_code,
             "return_msg": exc.return_msg,
             "order_executions": _order_executions_for_response(
-                username, "infinite", profile_name, basis_date
+                username, "infinite", profile_name, basis_date, attempt_started_at
             ),
+            "order_date": basis_date.isoformat(),
+            "order_datetime": order_datetime,
         }
         return _with_api_order_result_telegram(username, "infinite", profile_name, result)
     except Exception as exc:
@@ -3327,7 +3357,14 @@ def execute_infinite_web_orders(
             username,
             "infinite",
             profile_name,
-            {"ok": False, "message": f"무한매수법 주문실행 실패: {exc}"},
+            {
+                "ok": False,
+                "message": f"무한매수법 주문실행 실패: {exc}",
+                "order_datetime": order_datetime,
+                "order_executions": _order_executions_for_response(
+                    username, "infinite", profile_name, date.today(), attempt_started_at
+                ),
+            },
         )
 
 
@@ -3675,7 +3712,7 @@ def _send_api_order_result_telegram(
     lines = [
         f"[API 주문결과] {label} {profile_name}",
         f"상태: {result_label}",
-        f"주문일자: {result.get('order_date') or '-'}",
+        f"주문일시: {result.get('order_datetime') or result.get('order_date') or '-'}",
         f"메시지: {result.get('message') or '-'}",
     ]
     if status_counts:
