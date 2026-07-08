@@ -330,6 +330,65 @@ input[readonly]:focus,
   gap: 14px;
 }
 
+.mobile-ops-screen {
+  display: none;
+}
+
+.mobile-screen-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-screen-head div {
+  display: grid;
+  gap: 2px;
+}
+
+.mobile-screen-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-screen-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.mobile-screen-head select {
+  min-width: 132px;
+  max-width: 52%;
+}
+
+.mobile-status {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.mobile-status strong {
+  font-size: 18px;
+}
+
+.mobile-status span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.mobile-status-good {
+  border-left-color: #2f7d5b;
+}
+
+.mobile-status-warn {
+  border-left-color: #c88424;
+}
+
 .mobile-action-row {
   display: flex;
   flex-wrap: wrap;
@@ -338,6 +397,12 @@ input[readonly]:focus,
 
 .mobile-action-row button {
   flex: 1 1 120px;
+}
+
+.mobile-primary-actions button:first-child:not(:disabled) {
+  border-color: var(--accent-dark);
+  background: var(--accent);
+  color: #fff;
 }
 
 .mobile-summary-header {
@@ -1190,6 +1255,11 @@ tbody tr.selected-data-row {
     gap: 14px;
   }
 
+  .mobile-ops-screen {
+    display: grid;
+    gap: 12px;
+  }
+
   .mobile-only-tab.active {
     display: block;
   }
@@ -1204,6 +1274,13 @@ tbody tr.selected-data-row {
   }
 
   .dashboard-grid > .panel:nth-child(n + 3) {
+    display: none;
+  }
+
+  #vr-tab > .profile-bar,
+  #vr-tab > .strategy-layout,
+  #infinite-tab > .profile-bar,
+  #infinite-tab > .strategy-layout {
     display: none;
   }
 
@@ -1236,6 +1313,16 @@ tbody tr.selected-data-row {
 
   .mobile-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mobile-profile-card,
+  .mobile-metric-card,
+  .mobile-status {
+    box-shadow: 0 1px 0 rgba(26, 43, 53, 0.04);
+  }
+
+  .mobile-action-row button {
+    min-height: 42px;
   }
 
   .mobile-bottom-nav {

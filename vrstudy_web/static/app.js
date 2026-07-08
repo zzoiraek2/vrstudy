@@ -535,6 +535,7 @@ function renderVrCycleInputForm(data, onSubmit) {
 
 function setSelectOptions(selectId, profiles, selected) {
   const select = document.getElementById(selectId);
+  if (!select) return selected || profiles[0]?.name || "";
   select.innerHTML = "";
   profiles.forEach((profile) => {
     const option = document.createElement("option");
@@ -591,6 +592,7 @@ function renderSchedule(kind, schedule) {
   ]);
   text(`${kind}-schedule-status`, schedule?.enabled ? "ON" : "OFF");
   renderMobileAutomation();
+  if (state.dashboard) renderMobileDashboard(state.dashboard);
 }
 
 function schedulePayload(kind) {
@@ -1185,20 +1187,91 @@ function mobileProfileCard(title, rows, status = "") {
   return card;
 }
 
+function mobileStatusBanner(containerId, title, message, tone = "neutral") {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = "";
+  const banner = document.createElement("article");
+  banner.className = `mobile-status mobile-status-${tone}`;
+  const titleNode = document.createElement("strong");
+  titleNode.textContent = title;
+  const messageNode = document.createElement("span");
+  messageNode.textContent = message;
+  banner.append(titleNode, messageNode);
+  container.appendChild(banner);
+}
+
+function mobileActionCard(title, items) {
+  return mobileProfileCard(title, items.map((item) => [item.label, item.value]), "오늘");
+}
+
+function countOrders(rowsData) {
+  const quantity = (row) => Number(row.quantity ?? row.quantity_step ?? 0) || 0;
+  return {
+    count: rowsData.length,
+    qty: rowsData.reduce((sum, row) => sum + quantity(row), 0),
+  };
+}
+
+function priceRangeText(rowsData) {
+  const prices = rowsData
+    .map((row) => Number(row.price))
+    .filter((value) => Number.isFinite(value));
+  if (!prices.length) return "-";
+  return `${number(Math.min(...prices))} ~ ${number(Math.max(...prices))}`;
+}
+
+function orderResultMobileRows(result) {
+  const executionRows = orderResultRows(result);
+  const orderCount = executionRows.length;
+  const failedCount = executionRows.filter((row) => isFailedOrderStatus(orderResultStatus(row))).length;
+  const filledCount = executionRows.filter((row) => isFilledOrderStatus(orderResultStatus(row))).length;
+  const acceptedCount = executionRows.filter((row) => {
+    const status = orderResultStatus(row);
+    return status && !isFailedOrderStatus(status) && !isFilledOrderStatus(status);
+  }).length;
+  return [
+    ["실행일시", result?.order_datetime || result?.created_at || executionRows[0]?.created_at || "-"],
+    ["요약", result ? `접수 ${acceptedCount} / 체결 ${filledCount} / 실패 ${failedCount}` : "-"],
+    ["주문건수", result ? `${orderCount || (result.ok ? 1 : 0)}건` : "-"],
+    ["메시지", result ? orderResultStatusText(result) : "최근 주문결과 없음"],
+  ];
+}
+
 function renderMobileDashboard(data) {
   const summary = data.summary || {};
   const dueItems = data.due_items || [];
   const vrProfiles = data.vr_profile_rows || [];
   const infiniteProfiles = data.infinite_profile_rows || [];
+  const enabledSchedules = [state.vrSchedule, state.infiniteSchedule, state.telegramSettings]
+    .filter((item) => item?.enabled || item?.scheduled_send_enabled).length;
+  const statusTitle = dueItems.length ? "입력 필요" : "정상";
+  const statusMessage = dueItems.length
+    ? `${dueItems.length}건 확인 필요`
+    : enabledSchedules ? "자동 실행 대기 중" : "오늘 필수 작업 없음";
+  mobileStatusBanner("mobile-home-status", statusTitle, statusMessage, dueItems.length ? "warn" : "good");
   text("mobile-summary-date", data.today ? `오늘 ${data.today}` : "-");
   text("mobile-vr-count", `${vrProfiles.length}개`);
   text("mobile-infinite-count", `${infiniteProfiles.length}개`);
   setMobileCards("mobile-summary-cards", [
+    mobileMetricCard("입력 필요", `${dueItems.length}건`, dueItems[0]?.profile || "없음"),
+    mobileMetricCard("자동 ON", `${enabledSchedules}개`, "VR / 무매 / 텔레그램"),
     mobileMetricCard("현재자산", won(summary.total_value_krw), "원화 합산"),
-    mobileMetricCard("손익 / 수익률", `${won(summary.total_profit_krw)} / ${pct(summary.total_return_rate)}`),
-    mobileMetricCard("미작성", `${dueItems.length}개`, dueItems[0]?.profile || ""),
-    mobileMetricCard("예수금", won(summary.total_cash_krw), pct(summary.total_cash_ratio)),
+    mobileMetricCard("손익", `${won(summary.total_profit_krw)} / ${pct(summary.total_return_rate)}`),
   ], "요약 데이터가 없습니다.");
+  setMobileCards(
+    "mobile-home-actions",
+    dueItems.length
+      ? [mobileActionCard("오늘 액션", dueItems.slice(0, 4).map((item) => ({
+        label: item.kind,
+        value: `${item.profile} ${item.issue}`,
+      })))]
+      : [mobileActionCard("오늘 액션", [
+        { label: "입력", value: "필요 없음" },
+        { label: "자동", value: enabledSchedules ? "대기 중" : "꺼짐" },
+      ])],
+    "오늘 액션이 없습니다.",
+  );
   setMobileCards(
     "mobile-vr-cards",
     vrProfiles.slice(0, 6).map((profile) => mobileProfileCard(
@@ -1225,6 +1298,84 @@ function renderMobileDashboard(data) {
     )),
     "무한매수법 프로필이 없습니다.",
   );
+}
+
+function renderMobileOrderResult(kind) {
+  const result = kind === "vr" ? state.vrOrderResult : state.infiniteOrderResult;
+  const detail = kind === "vr" ? state.vrDetail : state.infiniteDetail;
+  const fallback = (detail?.order_executions || []).length ? {
+    ok: true,
+    message: detail.order_message || "최근 주문 이력",
+    order_executions: detail.order_executions,
+  } : null;
+  setMobileCards(
+    `mobile-${kind}-result`,
+    [mobileProfileCard("최근 주문결과", orderResultMobileRows(result || fallback), result || fallback ? "결과" : "대기")],
+    "최근 주문결과가 없습니다.",
+  );
+}
+
+function renderMobileVrOps() {
+  const detail = state.vrDetail || {};
+  const profile = detail.profile || {};
+  const snapshots = visibleVrSnapshots(detail);
+  const current = snapshots[0] || {};
+  const orderRows = detail.order_levels || [];
+  const buyRows = orderRows.filter((row) => ["BUY", "buy"].includes(String(row.side || "")));
+  const sellRows = orderRows.filter((row) => ["SELL", "sell"].includes(String(row.side || "")));
+  const buy = countOrders(buyRows);
+  const sell = countOrders(sellRows);
+  const statusTitle = detail.order_executable ? "주문 가능" : detail.order_reorderable ? "재주문 가능" : "대기";
+  const statusMessage = detail.order_message || (detail.order_executable ? `${detail.order_date || "-"} 주문표 준비됨` : "주문표 상태 확인 필요");
+  mobileStatusBanner("mobile-vr-status", statusTitle, statusMessage, detail.order_executable ? "good" : "neutral");
+  setMobileCards("mobile-vr-cards-main", [
+    mobileProfileCard(state.selectedVr || "VR 프로필", [
+      ["종목", profile.symbol || "-"],
+      ["차수/주차", `${current.cycle_no ?? detail.cycle_input?.cycle_no ?? "-"}차 ${current.week_no ?? detail.cycle_input?.week_no ?? "-"}주차`],
+      ["V / Pool", `${number(current.v ?? detail.order_basis?.v)} / ${number(current.pool ?? detail.order_basis?.pool)}`],
+      ["수익률", pct(current.return_rate)],
+    ], profile.calculation_paused ? "중단" : "운용"),
+    mobileProfileCard("주문표", [
+      ["주문일", detail.order_date || "-"],
+      ["매수", `${buy.count}건 / ${buy.qty}주`],
+      ["매도", `${sell.count}건 / ${sell.qty}주`],
+      ["가격범위", priceRangeText(orderRows)],
+    ], detail.order_executable ? "실행 가능" : "확인"),
+  ], "VR 데이터가 없습니다.");
+  const executeButton = document.getElementById("mobile-vr-execute");
+  const reorderButton = document.getElementById("mobile-vr-reorder");
+  if (executeButton) executeButton.disabled = !detail.order_executable;
+  if (reorderButton) reorderButton.disabled = !detail.order_reorderable;
+  renderMobileOrderResult("vr");
+}
+
+function renderMobileInfiniteOps() {
+  const detail = state.infiniteDetail || {};
+  const profile = detail.profile || {};
+  const latest = visibleInfiniteRows(detail)[0] || {};
+  const plan = detail.order_plan || {};
+  const buy = countOrders(plan.buy || []);
+  const sell = countOrders(plan.sell || []);
+  const input = detail.execution_input || {};
+  const statusTitle = detail.order_executable ? "주문 가능" : input.allowed ? "체결입력 필요" : "대기";
+  const statusMessage = detail.order_message || (input.allowed ? `${input.trade_date || "-"} 체결입력 가능` : "주문표 상태 확인 필요");
+  mobileStatusBanner("mobile-infinite-status", statusTitle, statusMessage, detail.order_executable || input.allowed ? "good" : "neutral");
+  setMobileCards("mobile-infinite-cards-main", [
+    mobileProfileCard(state.selectedInfinite || "무한매수법 프로필", [
+      ["종목", profile.symbol || "-"],
+      ["최근 일자", latest.trade_date || "-"],
+      ["평단 / T", `${number(latest.avg_price)} / ${number(latest.t_value, 1)}`],
+      ["수익률", pct(latest.return_rate)],
+    ], profile.calculation_paused ? "중단" : "운용"),
+    mobileProfileCard("주문표", [
+      ["주문일", detail.order_date || plan.order_date || "-"],
+      ["매수", `${buy.count}건 / ${buy.qty}주`],
+      ["매도", `${sell.count}건 / ${sell.qty}주`],
+      ["가격범위", priceRangeText([...(plan.buy || []), ...(plan.sell || [])])],
+    ], detail.order_executable ? "실행 가능" : "확인"),
+  ], "무한매수법 데이터가 없습니다.");
+  updateInfiniteOrderButtons();
+  renderMobileOrderResult("infinite");
 }
 
 function mobileWeekdaysText(days) {
@@ -1269,7 +1420,7 @@ function renderMobileAutomation() {
     mobileScheduleCard(
       "무한매수법 자동 주문",
       state.infiniteSchedule,
-      state.infiniteSchedule?.mode === "execute_only" ? "주문실행" : "체결입력 후 주문실행",
+      state.infiniteSchedule?.mode === "orders_only" ? "주문실행" : "체결입력 후 주문실행",
     ),
     telegramCard,
   ], "자동 실행 설정이 없습니다.");
@@ -1451,10 +1602,12 @@ async function loadVrProfiles() {
   const body = await api("/api/vr/profiles");
   state.vrProfiles = body.profiles || [];
   state.selectedVr = setSelectOptions("vr-profile-select", state.vrProfiles, state.selectedVr);
+  setSelectOptions("mobile-vr-profile-select", state.vrProfiles, state.selectedVr);
   if (state.selectedVr) await loadVrDetail(state.selectedVr);
   else updateProfileActionButtons("vr");
   await loadKiwoomForm("vr");
   renderMobileSettings();
+  renderMobileVrOps();
 }
 
 async function createVrProfile() {
@@ -1523,10 +1676,12 @@ async function loadInfiniteProfiles() {
     state.infiniteProfiles,
     state.selectedInfinite,
   );
+  setSelectOptions("mobile-infinite-profile-select", state.infiniteProfiles, state.selectedInfinite);
   if (state.selectedInfinite) await loadInfiniteDetail(state.selectedInfinite);
   else updateProfileActionButtons("infinite");
   await loadKiwoomForm("infinite");
   renderMobileSettings();
+  renderMobileInfiniteOps();
 }
 
 async function createInfiniteProfile() {
@@ -1778,6 +1933,7 @@ function setOrderResult(kind, result, activate = true) {
     state.infiniteOrderResult = result;
   }
   renderOrderResult(kind, result);
+  renderMobileOrderResult(kind);
   text(`${kind}-order-message`, orderResultStatusText(result));
   if (activate) activateOrderPanel(kind, `${kind}-order-result-panel`);
 }
@@ -1838,6 +1994,12 @@ function updateInfiniteOrderButtons() {
   if (reorderButton) reorderButton.disabled = !state.infiniteDetail?.order_reorderable;
   const afterInputButton = document.getElementById("infinite-execute-after-input");
   if (afterInputButton) afterInputButton.disabled = !infiniteAfterInputReady();
+  const mobileExecuteButton = document.getElementById("mobile-infinite-execute");
+  if (mobileExecuteButton) mobileExecuteButton.disabled = !state.infiniteDetail?.order_executable;
+  const mobileReorderButton = document.getElementById("mobile-infinite-reorder");
+  if (mobileReorderButton) mobileReorderButton.disabled = !state.infiniteDetail?.order_reorderable;
+  const mobileAfterInputButton = document.getElementById("mobile-infinite-after-input");
+  if (mobileAfterInputButton) mobileAfterInputButton.disabled = !infiniteAfterInputReady();
 }
 
 function vrOrderOptions() {
@@ -2116,6 +2278,7 @@ async function loadVrDetail(profileName) {
   const detail = await api(`/api/vr/profiles/${encodeURIComponent(profileName)}`);
   state.vrDetail = detail;
   const profile = detail.profile || {};
+  setSelectOptions("mobile-vr-profile-select", state.vrProfiles, state.selectedVr);
   updateProfileActionButtons("vr");
   text("vr-cycle-status", [profile.symbol, profile.account_number].filter(Boolean).join(" / "));
   renderSettingsForm("vr-settings", profile, [
@@ -2176,6 +2339,7 @@ async function loadVrDetail(profileName) {
   }
   renderEmpty(document.getElementById("vr-fill-history"), 5);
   text("vr-fill-message", "");
+  renderMobileVrOps();
 }
 
 async function loadInfiniteDetail(profileName) {
@@ -2188,6 +2352,7 @@ async function loadInfiniteDetail(profileName) {
   const detail = await api(`/api/infinite/profiles/${encodeURIComponent(profileName)}`);
   state.infiniteDetail = detail;
   const profile = detail.profile || {};
+  setSelectOptions("mobile-infinite-profile-select", state.infiniteProfiles, state.selectedInfinite);
   updateProfileActionButtons("infinite");
   renderSettingsForm("infinite-settings", profile, [
     { name: "account_number", label: "계좌번호" },
@@ -2242,6 +2407,7 @@ async function loadInfiniteDetail(profileName) {
     activateOrderPanel("infinite", "infinite-order-plan-panel");
     text("infinite-order-message", detail.order_message || "");
   }
+  renderMobileInfiniteOps();
 }
 
 async function loadKiwoomForm(kind) {
@@ -2308,6 +2474,7 @@ async function loadTelegramForm() {
   renderTelegramSchedule(data);
   renderMobileAutomation();
   renderMobileSettings();
+  if (state.dashboard) renderMobileDashboard(state.dashboard);
   text(
     "telegram-message",
     data.has_bot_token ? `저장된 Bot Token: ${data.bot_token_masked}` : "저장된 Bot Token 없음",
@@ -2329,6 +2496,7 @@ async function saveTelegramForm(event) {
   renderTelegramSchedule(data);
   renderMobileAutomation();
   renderMobileSettings();
+  if (state.dashboard) renderMobileDashboard(state.dashboard);
   text("telegram-message", data.has_bot_token ? "텔레그램 저장 완료" : "텔레그램 저장 완료 / 토큰 없음");
 }
 
@@ -2424,6 +2592,14 @@ document.getElementById("infinite-profile-select").addEventListener("change", as
   await loadInfiniteDetail(event.target.value);
   await loadKiwoomForm("infinite");
 });
+document.getElementById("mobile-vr-profile-select").addEventListener("change", async (event) => {
+  await loadVrDetail(event.target.value);
+  await loadKiwoomForm("vr");
+});
+document.getElementById("mobile-infinite-profile-select").addEventListener("change", async (event) => {
+  await loadInfiniteDetail(event.target.value);
+  await loadKiwoomForm("infinite");
+});
 document.getElementById("refresh-vr").addEventListener("click", loadVrProfiles);
 document.getElementById("refresh-infinite").addEventListener("click", loadInfiniteProfiles);
 document.getElementById("new-vr").addEventListener("click", createVrProfile);
@@ -2447,6 +2623,8 @@ document.getElementById("vr-fill-previous").addEventListener("click", () => look
 document.getElementById("vr-fill-current").addEventListener("click", () => lookupVrFillHistory("current"));
 document.getElementById("vr-execute-orders").addEventListener("click", () => executeVrOrders(false));
 document.getElementById("vr-reorder-orders").addEventListener("click", () => executeVrOrders(true));
+document.getElementById("mobile-vr-execute").addEventListener("click", () => executeVrOrders(false));
+document.getElementById("mobile-vr-reorder").addEventListener("click", () => executeVrOrders(true));
 document.getElementById("vr-sell-order-mode").addEventListener("change", updateVrSellOrderMode);
 document.getElementById("vr-sell-order-count").addEventListener("input", () => {
   state.vrOrderPreview = null;
@@ -2475,6 +2653,9 @@ document.getElementById("vr-quantity-step-form").addEventListener("submit", asyn
 document.getElementById("infinite-execute-orders").addEventListener("click", () => executeInfiniteOrders(false));
 document.getElementById("infinite-reorder-orders").addEventListener("click", () => executeInfiniteOrders(true));
 document.getElementById("infinite-execute-after-input").addEventListener("click", executeInfiniteAfterInput);
+document.getElementById("mobile-infinite-execute").addEventListener("click", () => executeInfiniteOrders(false));
+document.getElementById("mobile-infinite-reorder").addEventListener("click", () => executeInfiniteOrders(true));
+document.getElementById("mobile-infinite-after-input").addEventListener("click", executeInfiniteAfterInput);
 document.getElementById("vr-api-form").addEventListener("submit", (event) => saveKiwoomForm("vr", event));
 document.getElementById("infinite-api-form").addEventListener("submit", (event) => saveKiwoomForm("infinite", event));
 document.getElementById("vr-schedule-form").addEventListener("submit", saveVrSchedule);

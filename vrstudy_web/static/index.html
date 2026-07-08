@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VR Study Web</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260708_mobile_nav" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260708_mobile_ops" />
   </head>
   <body>
     <main class="shell">
@@ -75,10 +75,12 @@
 
           <section class="mobile-summary" aria-label="모바일 핵심 요약">
             <div class="mobile-summary-header">
-              <h2>핵심 요약</h2>
+              <h2>오늘 운용</h2>
               <span id="mobile-summary-date">-</span>
             </div>
+            <div id="mobile-home-status"></div>
             <div class="mobile-summary-grid" id="mobile-summary-cards"></div>
+            <div id="mobile-home-actions" class="mobile-card-list"></div>
             <div class="mobile-profile-list">
               <div class="mobile-summary-header">
                 <h2>VR</h2>
@@ -243,6 +245,23 @@
         </section>
 
         <section id="vr-tab" class="tab-page">
+          <section id="mobile-vr-screen" class="mobile-ops-screen" aria-label="모바일 VR 운용">
+            <div class="mobile-screen-head">
+              <div>
+                <span>VR</span>
+                <h2>주문 운용</h2>
+              </div>
+              <select id="mobile-vr-profile-select"></select>
+            </div>
+            <div id="mobile-vr-status"></div>
+            <div id="mobile-vr-cards-main" class="mobile-card-list"></div>
+            <div class="mobile-action-row mobile-primary-actions">
+              <button id="mobile-vr-execute" type="button">주문실행</button>
+              <button id="mobile-vr-reorder" type="button">재주문</button>
+            </div>
+            <div id="mobile-vr-result" class="mobile-card-list"></div>
+          </section>
+
           <div class="profile-bar">
             <label>
               <span>프로필</span>
@@ -513,6 +532,24 @@
         </section>
 
         <section id="infinite-tab" class="tab-page">
+          <section id="mobile-infinite-screen" class="mobile-ops-screen" aria-label="모바일 무한매수법 운용">
+            <div class="mobile-screen-head">
+              <div>
+                <span>무한매수법</span>
+                <h2>주문 운용</h2>
+              </div>
+              <select id="mobile-infinite-profile-select"></select>
+            </div>
+            <div id="mobile-infinite-status"></div>
+            <div id="mobile-infinite-cards-main" class="mobile-card-list"></div>
+            <div class="mobile-action-row mobile-primary-actions">
+              <button id="mobile-infinite-after-input" type="button">체결입력 후 주문실행</button>
+              <button id="mobile-infinite-execute" type="button">주문실행</button>
+              <button id="mobile-infinite-reorder" type="button">재주문</button>
+            </div>
+            <div id="mobile-infinite-result" class="mobile-card-list"></div>
+          </section>
+
           <div class="profile-bar">
             <label>
               <span>프로필</span>
@@ -861,6 +898,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260708_mobile_nav"></script>
+    <script src="/assets/app.js?v=20260708_mobile_ops"></script>
   </body>
 </html>
