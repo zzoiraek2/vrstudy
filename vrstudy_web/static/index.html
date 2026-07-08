@@ -472,6 +472,7 @@
                 <button class="inner-tab active" type="button" data-panel="infinite-settings-panel">설정</button>
                 <button class="inner-tab" type="button" data-panel="infinite-execution-panel">전일 체결 결과 입력</button>
                 <button class="inner-tab" type="button" data-panel="infinite-api-panel">API</button>
+                <button class="inner-tab" type="button" data-panel="infinite-schedule-panel">스케줄</button>
               </nav>
 
               <section id="infinite-settings-panel" class="inner-panel active">
@@ -537,6 +538,39 @@
                     <pre id="infinite-balance-result" class="json-result"></pre>
                     <p id="infinite-balance-message" class="message muted-message padded-message"></p>
                   </section>
+                </section>
+              </section>
+
+              <section id="infinite-schedule-panel" class="inner-panel">
+                <section class="panel compact-panel">
+                  <div class="panel-header">
+                    <h2>자동 실행 스케줄</h2>
+                    <span id="infinite-schedule-status">프로필별 저장</span>
+                  </div>
+                  <form id="infinite-schedule-form" class="settings-form one-col">
+                    <label class="schedule-toggle">
+                      <span>자동 실행</span>
+                      <input name="enabled" type="checkbox" />
+                    </label>
+                    <label>
+                      <span>동작 시간</span>
+                      <input name="time" type="time" />
+                    </label>
+                    <div class="checkbox-grid schedule-weekdays">
+                      <label><input name="weekday" type="checkbox" value="0" /> 월</label>
+                      <label><input name="weekday" type="checkbox" value="1" /> 화</label>
+                      <label><input name="weekday" type="checkbox" value="2" /> 수</label>
+                      <label><input name="weekday" type="checkbox" value="3" /> 목</label>
+                      <label><input name="weekday" type="checkbox" value="4" /> 금</label>
+                      <label><input name="weekday" type="checkbox" value="5" /> 토</label>
+                      <label><input name="weekday" type="checkbox" value="6" /> 일</label>
+                    </div>
+                    <div class="readonly-form single" id="infinite-schedule-last"></div>
+                    <div class="form-actions">
+                      <button type="submit">스케줄 저장</button>
+                    </div>
+                    <p id="infinite-schedule-message" class="message muted-message"></p>
+                  </form>
                 </section>
               </section>
             </section>
@@ -698,6 +732,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260708_after_input_ready"></script>
+    <script src="/assets/app.js?v=20260708_infinite_schedule"></script>
   </body>
 </html>

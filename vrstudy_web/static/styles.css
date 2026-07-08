@@ -860,6 +860,21 @@ tbody tr.selected-data-row {
   height: 16px;
 }
 
+.schedule-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.schedule-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.schedule-weekdays {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .form-actions {
   display: flex;
   grid-column: 1 / -1;

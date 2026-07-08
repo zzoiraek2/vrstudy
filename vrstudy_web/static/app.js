@@ -11,6 +11,7 @@ const state = {
   infiniteDetail: null,
   infiniteExecutionPreview: null,
   infiniteOrderResult: null,
+  infiniteSchedule: null,
   dashboardCharts: {
     vrProfile: "",
     infiniteProfile: "",
@@ -557,6 +558,66 @@ function formValues(form) {
     else values[element.name] = element.value;
   }
   return values;
+}
+
+function renderInfiniteSchedule(schedule) {
+  const form = document.getElementById("infinite-schedule-form");
+  if (!form) return;
+  form.elements.enabled.checked = Boolean(schedule?.enabled);
+  form.elements.time.value = schedule?.time || "15:55";
+  const weekdays = new Set((schedule?.weekdays || [0, 1, 2, 3, 4]).map((day) => String(day)));
+  form.querySelectorAll('input[name="weekday"]').forEach((input) => {
+    input.checked = weekdays.has(input.value);
+  });
+  renderFields("infinite-schedule-last", schedule || {}, [
+    ["상태", "last_status", (value) => value || "-"],
+    ["최근 시도일", "last_attempt_date", (value) => value || "-"],
+    ["최근 실행시각", "last_run_at", (value) => value || "-"],
+    ["최근 메시지", "last_message", (value) => value || "-"],
+  ]);
+  text("infinite-schedule-status", schedule?.enabled ? "ON" : "OFF");
+}
+
+function infiniteSchedulePayload() {
+  const form = document.getElementById("infinite-schedule-form");
+  const weekdays = [...form.querySelectorAll('input[name="weekday"]:checked')]
+    .map((input) => Number.parseInt(input.value, 10))
+    .filter((value) => Number.isFinite(value));
+  return {
+    enabled: Boolean(form.elements.enabled.checked),
+    time: form.elements.time.value || "15:55",
+    weekdays,
+  };
+}
+
+async function loadInfiniteSchedule(profileName = state.selectedInfinite) {
+  if (!profileName) return;
+  const schedule = await api(`/api/infinite/profiles/${encodeURIComponent(profileName)}/schedule`);
+  state.infiniteSchedule = schedule;
+  renderInfiniteSchedule(schedule);
+}
+
+async function saveInfiniteSchedule(event) {
+  event.preventDefault();
+  const profile = state.selectedInfinite;
+  if (!profile) return;
+  const payload = infiniteSchedulePayload();
+  if (!payload.weekdays.length) {
+    text("infinite-schedule-message", "요일을 1개 이상 선택하세요.");
+    return;
+  }
+  text("infinite-schedule-message", "스케줄 저장 중...");
+  try {
+    const schedule = await api(`/api/infinite/profiles/${encodeURIComponent(profile)}/schedule`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    state.infiniteSchedule = schedule;
+    renderInfiniteSchedule(schedule);
+    text("infinite-schedule-message", "스케줄 저장 완료");
+  } catch (error) {
+    text("infinite-schedule-message", error.message);
+  }
 }
 
 function currentProfile(kind) {
@@ -1950,6 +2011,7 @@ async function loadInfiniteDetail(profileName) {
   ]);
   renderInfiniteOrderPlan(detail.order_plan);
   updateInfiniteOrderButtons();
+  await loadInfiniteSchedule(profileName);
   if (state.infiniteOrderResult) {
     renderOrderResult("infinite", state.infiniteOrderResult);
   } else {
@@ -2156,6 +2218,7 @@ document.getElementById("infinite-reorder-orders").addEventListener("click", () 
 document.getElementById("infinite-execute-after-input").addEventListener("click", executeInfiniteAfterInput);
 document.getElementById("vr-api-form").addEventListener("submit", (event) => saveKiwoomForm("vr", event));
 document.getElementById("infinite-api-form").addEventListener("submit", (event) => saveKiwoomForm("infinite", event));
+document.getElementById("infinite-schedule-form").addEventListener("submit", saveInfiniteSchedule);
 document.getElementById("reload-telegram").addEventListener("click", loadTelegramForm);
 document.getElementById("test-telegram").addEventListener("click", testTelegram);
 document.getElementById("send-telegram-selected").addEventListener("click", sendTelegramSelected);

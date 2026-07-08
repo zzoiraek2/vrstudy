@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -7,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .accounts import authenticate, ensure_user_dirs, session_secret_path
+from .accounts import authenticate, ensure_user_dirs, load_users, session_secret_path
 from .data import (
     create_infinite_web_profile,
     create_vr_web_profile,
@@ -18,6 +20,7 @@ from .data import (
     execute_infinite_web_orders,
     execute_vr_web_orders,
     get_kiwoom_credentials,
+    get_infinite_schedule,
     get_telegram_settings,
     infinite_profile_detail,
     infinite_profiles,
@@ -27,10 +30,12 @@ from .data import (
     lookup_vr_fill_history,
     lookup_vr_period_preview,
     preview_vr_web_orders,
+    put_infinite_schedule,
     put_kiwoom_credentials,
     put_telegram_settings,
     rename_infinite_web_profile,
     rename_vr_web_profile,
+    run_due_infinite_schedules,
     save_infinite_web_execution,
     save_vr_web_cycle_input,
     send_telegram_selected_message,
@@ -150,11 +155,45 @@ class OrderExecutionRequest(BaseModel):
     force_reorder: bool = False
 
 
+class InfiniteScheduleRequest(BaseModel):
+    enabled: bool = False
+    time: str = "15:55"
+    weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+
+
 app = FastAPI(title="VR Study Web")
 ensure_user_dirs()
 SESSION_SECRET = ensure_session_secret(session_secret_path())
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
 app.mount("/vendor", StaticFiles(directory=VENDOR_DIR), name="vendor")
+_SCHEDULER_TASK: asyncio.Task | None = None
+
+
+async def _infinite_schedule_loop() -> None:
+    while True:
+        try:
+            usernames = list(load_users().keys())
+            await asyncio.to_thread(run_due_infinite_schedules, usernames)
+        except Exception:
+            pass
+        await asyncio.sleep(30)
+
+
+@app.on_event("startup")
+async def start_infinite_scheduler() -> None:
+    global _SCHEDULER_TASK
+    if _SCHEDULER_TASK is None or _SCHEDULER_TASK.done():
+        _SCHEDULER_TASK = asyncio.create_task(_infinite_schedule_loop())
+
+
+@app.on_event("shutdown")
+async def stop_infinite_scheduler() -> None:
+    global _SCHEDULER_TASK
+    if _SCHEDULER_TASK is not None:
+        _SCHEDULER_TASK.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _SCHEDULER_TASK
+        _SCHEDULER_TASK = None
 
 
 def current_username(request: Request) -> str:
@@ -371,6 +410,28 @@ def api_infinite_execution_save(
 ) -> dict[str, object]:
     try:
         return save_infinite_web_execution(username, profile_name, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/infinite/profiles/{profile_name}/schedule")
+def api_infinite_schedule_get(
+    profile_name: str, username: str = Depends(current_username)
+) -> dict[str, object]:
+    try:
+        return get_infinite_schedule(username, profile_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/infinite/profiles/{profile_name}/schedule")
+def api_infinite_schedule_put(
+    profile_name: str,
+    payload: InfiniteScheduleRequest,
+    username: str = Depends(current_username),
+) -> dict[str, object]:
+    try:
+        return put_infinite_schedule(username, profile_name, payload.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
