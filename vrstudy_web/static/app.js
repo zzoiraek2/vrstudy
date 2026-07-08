@@ -393,6 +393,7 @@ function renderInfiniteExecutionForm(data, onSubmit) {
   ];
   container.innerHTML = "";
   const form = document.createElement("form");
+  form.id = "infinite-execution-form";
   form.className = "settings-form one-col embedded-settings-form";
   fields.forEach((field) => {
     const label = document.createElement("label");
@@ -432,6 +433,7 @@ function renderInfiniteExecutionForm(data, onSubmit) {
       message.textContent = error.message;
     }
   });
+  form.addEventListener("input", updateInfiniteOrderButtons);
   container.appendChild(form);
 }
 
@@ -1524,14 +1526,31 @@ function infiniteExecutionFormValues() {
   return form ? formValues(form) : {};
 }
 
+function infiniteExecutionPayload(values) {
+  return {
+    trade_date: String(values.trade_date || "").trim(),
+    avg_price: Number(String(values.avg_price || "0").replace(/,/g, "")),
+    buy_qty: Number.parseInt(String(values.buy_qty || "0").replace(/,/g, ""), 10) || 0,
+    sell_qty: Number.parseInt(String(values.sell_qty || "0").replace(/,/g, ""), 10) || 0,
+    cash_flow_amount: Number(String(values.cash_flow_amount || "0").replace(/,/g, "")),
+  };
+}
+
 function infiniteAfterInputReady() {
   if (!state.selectedInfinite || !state.infiniteDetail) return false;
   if (state.infiniteDetail.order_executable) return false;
   if (!state.infiniteDetail.execution_input?.allowed) return false;
-  if (!state.infiniteExecutionPreview?.ok || !state.infiniteExecutionPreview?.preview) return false;
-  const preview = state.infiniteExecutionPreview.preview;
   const current = infiniteExecutionFormValues();
-  return Boolean(preview.trade_date && preview.trade_date !== "-" && preview.trade_date === current.trade_date);
+  const payload = infiniteExecutionPayload(current);
+  if (!payload.trade_date || payload.trade_date === "-") return false;
+  if (state.infiniteDetail.execution_input?.trade_date && payload.trade_date !== state.infiniteDetail.execution_input.trade_date) {
+    return false;
+  }
+  if (state.infiniteExecutionPreview?.ok && state.infiniteExecutionPreview?.preview) {
+    const preview = state.infiniteExecutionPreview.preview;
+    return Boolean(preview.trade_date && preview.trade_date !== "-" && preview.trade_date === payload.trade_date);
+  }
+  return Number.isFinite(payload.avg_price) && payload.avg_price > 0;
 }
 
 function updateInfiniteOrderButtons() {
@@ -1651,9 +1670,17 @@ async function executeInfiniteOrders(forceReorder = false) {
 async function executeInfiniteAfterInput() {
   const profile = state.selectedInfinite;
   const result = state.infiniteExecutionPreview;
-  if (!profile || !result?.preview) return;
-  const preview = result.preview;
+  if (!profile) return;
   const current = infiniteExecutionFormValues();
+  const currentPayload = infiniteExecutionPayload(current);
+  const preview = result?.preview || null;
+  const inputPayload = preview && preview.trade_date === currentPayload.trade_date ? {
+    trade_date: preview.trade_date,
+    avg_price: Number(preview.avg_price),
+    buy_qty: Number(preview.buy_qty || 0),
+    sell_qty: Number(preview.sell_qty || 0),
+    cash_flow_amount: currentPayload.cash_flow_amount,
+  } : currentPayload;
   if (state.infiniteDetail?.order_executable) {
     text("infinite-order-message", "이미 해당 주문표가 있습니다. 주문실행 버튼을 사용하세요.");
     updateInfiniteOrderButtons();
@@ -1664,25 +1691,25 @@ async function executeInfiniteAfterInput() {
     updateInfiniteOrderButtons();
     return;
   }
-  if (!preview.trade_date || preview.trade_date === "-") {
+  if (!inputPayload.trade_date || inputPayload.trade_date === "-") {
     text("infinite-order-message", "조회 결과에 체결 입력일이 없습니다.");
     return;
   }
-  if (preview.trade_date !== current.trade_date) {
-    text("infinite-order-message", `조회 입력일(${preview.trade_date})과 현재 입력일(${current.trade_date})이 다릅니다.`);
+  if (inputPayload.trade_date !== state.infiniteDetail.execution_input?.trade_date) {
+    text("infinite-order-message", `현재 입력일(${inputPayload.trade_date})과 저장 가능한 입력일(${state.infiniteDetail.execution_input?.trade_date || "-"})이 다릅니다.`);
     updateInfiniteOrderButtons();
     return;
   }
-  if (Number(preview.avg_price || 0) <= 0) {
+  if (!Number.isFinite(inputPayload.avg_price) || inputPayload.avg_price <= 0) {
     text("infinite-order-message", "조회 결과에 평균단가가 없습니다.");
     return;
   }
   const message = [
     "체결입력 후 주문실행을 진행할까요?",
     "",
-    `입력일: ${preview.trade_date}`,
-    `평균단가: ${preview.avg_price}`,
-    `매수/매도: ${preview.buy_qty || 0} / ${preview.sell_qty || 0}`,
+    `입력일: ${inputPayload.trade_date}`,
+    `평균단가: ${inputPayload.avg_price}`,
+    `매수/매도: ${inputPayload.buy_qty || 0} / ${inputPayload.sell_qty || 0}`,
     "",
     "확인을 누르면 체결입력을 저장한 뒤 키움 REST API로 실제 주문 요청이 전송됩니다.",
   ].join("\n");
@@ -1692,13 +1719,7 @@ async function executeInfiniteAfterInput() {
     text("infinite-order-message", "체결입력 저장 중...");
     await api(`/api/infinite/profiles/${encodeURIComponent(profile)}/execution`, {
       method: "POST",
-      body: JSON.stringify({
-        trade_date: preview.trade_date,
-        avg_price: Number(preview.avg_price),
-        buy_qty: Number(preview.buy_qty || 0),
-        sell_qty: Number(preview.sell_qty || 0),
-        cash_flow_amount: Number(current.cash_flow_amount || 0),
-      }),
+      body: JSON.stringify(inputPayload),
     });
     text("infinite-order-message", "주문표 생성 후 주문실행 중...");
     orderResult = await api(`/api/kiwoom/infinite/${encodeURIComponent(profile)}/execute-orders`, {

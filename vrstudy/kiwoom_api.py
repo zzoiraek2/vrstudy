@@ -543,7 +543,11 @@ def _post_json_with_headers(
     timeout: int,
     headers: dict[str, str] | None = None,
 ) -> KiwoomApiResult:
-    request_headers = {"Content-Type": "application/json;charset=UTF-8"}
+    request_headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json;charset=UTF-8",
+        "User-Agent": "vrstudy/1.0",
+    }
     request_headers.update(headers or {})
     request = Request(
         url,
