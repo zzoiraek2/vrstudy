@@ -639,6 +639,7 @@ function renderMobileScheduleSheet(kind) {
   if (!form) return;
   const schedule = scheduleState(kind) || {};
   const isVr = kind === "vr";
+  const profile = selectedScheduleProfile(kind);
   state.mobileScheduleKind = kind;
   text("mobile-schedule-caption", isVr ? "VR" : "무한매수법");
   text("mobile-schedule-title", isVr ? "VR 자동 실행 스케줄" : "무한매수법 자동 실행 스케줄");
@@ -652,16 +653,17 @@ function renderMobileScheduleSheet(kind) {
     input.checked = weekdays.has(input.value);
   });
   renderFields("mobile-schedule-last", schedule, [
+    ["프로필", "", () => profile || "선택된 프로필 없음"],
     ["최근 상태", "last_status", (value) => value || "-"],
     ["최근 실행시각", "last_run_at", (value) => value || "-"],
     ["최근 메시지", "last_message", (value) => value || "-"],
   ]);
-  text("mobile-schedule-message", "");
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (submitButton) submitButton.disabled = !profile;
+  text("mobile-schedule-message", profile ? "" : "선택된 프로필이 없습니다. 먼저 프로필을 선택하거나 생성하세요.");
 }
 
 function openMobileScheduleSheet(kind) {
-  const profile = selectedScheduleProfile(kind);
-  if (!profile) return;
   renderMobileScheduleSheet(kind);
   const sheet = document.getElementById("mobile-schedule-sheet");
   if (sheet) sheet.hidden = false;
@@ -679,7 +681,10 @@ async function saveMobileSchedule(event) {
   const form = document.getElementById("mobile-schedule-form");
   if (!kind || !form) return;
   const profile = selectedScheduleProfile(kind);
-  if (!profile) return;
+  if (!profile) {
+    text("mobile-schedule-message", "선택된 프로필이 없습니다. 먼저 프로필을 선택하거나 생성하세요.");
+    return;
+  }
   const payload = schedulePayloadFromForm(form, kind);
   if (!payload.weekdays.length) {
     text("mobile-schedule-message", "요일을 1개 이상 선택하세요.");
