@@ -241,6 +241,94 @@ def resolve_us_stock_exchange_code(
     return fallback
 
 
+def request_us_stock_quote(
+    credentials: KiwoomCredentials,
+    token: KiwoomToken,
+    *,
+    stex_tp: str,
+    stk_cd: str,
+    timeout: int = 15,
+) -> dict:
+    host = token.host or kiwoom_host(credentials.investment_type)
+    payload = {
+        "stex_tp": str(stex_tp or ""),
+        "stk_cd": str(stk_cd or "").upper(),
+    }
+    result = _post_kiwoom_json(
+        f"{host}/api/us/mrkcond",
+        payload,
+        api_id="usa20100",
+        token=token.token,
+        timeout=timeout,
+    )
+    _raise_for_kiwoom_body(result.body)
+    body = dict(result.body)
+    body["_meta"] = {
+        "api_id": "usa20100",
+        "headers": result.headers,
+        "request": payload,
+    }
+    return body
+
+
+def request_us_daily_prices(
+    credentials: KiwoomCredentials,
+    token: KiwoomToken,
+    *,
+    stex_tp: str,
+    stk_cd: str,
+    base_dt: str,
+    timeout: int = 15,
+    max_pages: int = 3,
+) -> dict:
+    host = token.host or kiwoom_host(credentials.investment_type)
+    payload = {
+        "stex_tp": str(stex_tp or ""),
+        "stk_cd": str(stk_cd or "").upper(),
+        "base_dt": str(base_dt or ""),
+    }
+    pages: list[KiwoomApiResult] = []
+    cont_yn = "N"
+    next_key = ""
+    for _ in range(max_pages):
+        result = _post_kiwoom_json(
+            f"{host}/api/us/mrkcond",
+            payload,
+            api_id="usa20590",
+            token=token.token,
+            cont_yn=cont_yn,
+            next_key=next_key,
+            timeout=timeout,
+        )
+        _raise_for_kiwoom_body(result.body)
+        pages.append(result)
+        next_key = result.headers.get("next-key", "")
+        if result.headers.get("cont-yn") != "Y" or not next_key:
+            break
+        cont_yn = "Y"
+
+    if not pages:
+        return {}
+    merged = dict(pages[0].body)
+    rows: list[dict] = []
+    for page in pages:
+        for key in ("result_list", "result_lsit"):
+            page_rows = page.body.get(key)
+            if isinstance(page_rows, list):
+                rows.extend(row for row in page_rows if isinstance(row, dict))
+                break
+    if rows:
+        merged["result_list"] = rows
+    merged["_meta"] = {
+        "api_id": "usa20590",
+        "pages": len(pages),
+        "last_cont_yn": pages[-1].headers.get("cont-yn", ""),
+        "last_next_key": pages[-1].headers.get("next-key", ""),
+        "request": payload,
+    }
+    return merged
+
+
 def request_us_ledger_balance(
     credentials: KiwoomCredentials,
     token: KiwoomToken,

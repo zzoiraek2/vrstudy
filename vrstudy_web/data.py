@@ -8,7 +8,7 @@ from typing import Any
 
 import duckdb
 
-from .accounts import user_data_dir, user_db_path
+from .accounts import user_data_dir, user_db_path, web_data_dir
 from vrstudy.db import init_db, next_id
 from vrstudy.core import CycleInput, cycle_dates, cycle_input_available_date, order_level_values
 from vrstudy.infinite import (
@@ -18,6 +18,7 @@ from vrstudy.infinite import (
     infinite_rows,
     infinite_order_plan,
     infinite_status_view,
+    is_us_trading_day,
     latest_fx_rate,
     order_basis_row,
     next_us_trading_day,
@@ -33,9 +34,11 @@ from vrstudy.kiwoom_api import (
     delete_profile_token,
     rename_profile_token,
     request_us_buy_order,
+    request_us_daily_prices,
     request_us_ledger_balance,
     request_us_period_order_history,
     request_us_sell_order,
+    request_us_stock_quote,
     resolve_us_stock_exchange_code,
     save_profile_token,
 )
@@ -47,6 +50,7 @@ from vrstudy.kiwoom_credentials import (
     rename_kiwoom_credentials,
     save_kiwoom_credentials,
 )
+from vrstudy.price_api import fetch_yahoo_daily
 from vrstudy.profiles import (
     Profile,
     create_profile,
@@ -71,6 +75,7 @@ from vrstudy.storage import (
     rename_profile_snapshots,
     save_cycle_result,
     snapshot_for_cycle,
+    upsert_manual_price,
 )
 from vrstudy.telegram import (
     TelegramSettings,
@@ -557,6 +562,69 @@ DEFAULT_VR_SCHEDULE = {
     "last_status": "",
     "last_message": "",
 }
+
+MARKET_STATUS_INTERVAL = timedelta(hours=1)
+MARKET_CLOSE_REFRESH_TIMES = ("06:10", "06:30", "07:00", "08:30")
+MARKET_PRICE_SYMBOLS = ("TQQQ", "SOXL")
+
+
+def market_data_state_path() -> Path:
+    return web_data_dir() / "market_data_state.json"
+
+
+def _read_market_data_state() -> dict[str, Any]:
+    path = market_data_state_path()
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        return raw if isinstance(raw, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _write_market_data_state(data: dict[str, Any]) -> dict[str, Any]:
+    path = market_data_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return data
+
+
+def _parse_state_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _market_reference_day(now: datetime) -> date:
+    return previous_us_trading_day(now.date() - timedelta(days=1))
+
+
+def _market_close_slot(now: datetime) -> str:
+    current = now.strftime("%H:%M")
+    due_slots = [slot for slot in MARKET_CLOSE_REFRESH_TIMES if current >= slot]
+    return due_slots[-1] if due_slots else ""
+
+
+def _signed_float(value: Any) -> float:
+    text = str(value or "").replace(",", "").strip()
+    if not text:
+        return 0.0
+    try:
+        return float(text)
+    except ValueError:
+        return 0.0
+
+
+def _parse_kiwoom_yyyymmdd(value: Any) -> date | None:
+    text = str(value or "").strip()
+    if len(text) != 8 or not text.isdigit():
+        return None
+    return date.fromisoformat(f"{text[:4]}-{text[4:6]}-{text[6:]}")
 
 
 def _vr_schedule_path(username: str, profile_name: str) -> Path:
@@ -3524,6 +3592,259 @@ def execute_infinite_after_input_workflow(
         "preview": preview,
         "message": f"자동 체결입력 후 주문실행: {order_result.get('message') or '-'}",
     }
+
+
+def _market_data_profile_sources(username: str) -> list[dict[str, str]]:
+    sources: list[dict[str, str]] = []
+    try:
+        for profile in vr_profiles(username):
+            name = str(profile.get("name") or "").strip()
+            symbol = str(profile.get("symbol") or "").strip().upper()
+            if name and symbol:
+                sources.append({"kind": "vr", "profile": name, "symbol": symbol})
+    except Exception:
+        pass
+    try:
+        for profile in infinite_profiles(username):
+            name = str(profile.get("name") or "").strip()
+            symbol = str(profile.get("symbol") or "").strip().upper()
+            if name and symbol:
+                sources.append({"kind": "infinite", "profile": name, "symbol": symbol})
+    except Exception:
+        pass
+    seen: set[tuple[str, str, str]] = set()
+    unique: list[dict[str, str]] = []
+    for source in sources:
+        key = (source["kind"], source["profile"], source["symbol"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(source)
+    return unique
+
+
+def _market_data_credentials(username: str, source: dict[str, str]) -> KiwoomCredentials | None:
+    credentials = load_kiwoom_credentials(
+        source["kind"], source["profile"], kiwoom_credentials_path(username)
+    )
+    if not credentials.app_key.strip() or not credentials.app_secret.strip():
+        return None
+    return credentials
+
+
+def _market_data_symbol_sources(usernames: list[str]) -> dict[str, dict[str, Any]]:
+    by_symbol: dict[str, dict[str, Any]] = {}
+    for username in usernames:
+        for source in _market_data_profile_sources(username):
+            credentials = _market_data_credentials(username, source)
+            symbol = source["symbol"]
+            by_symbol.setdefault(
+                symbol,
+                {
+                    "username": username,
+                    "source": source,
+                    "credentials": credentials,
+                },
+            )
+    return by_symbol
+
+
+def _upsert_kiwoom_daily_price(
+    username: str,
+    symbol: str,
+    row: dict[str, Any],
+) -> dict[str, Any] | None:
+    price_date = _parse_kiwoom_yyyymmdd(row.get("dt"))
+    close = abs(_signed_float(row.get("cur_prc")))
+    if price_date is None or close <= 0:
+        return None
+    con = _connect_writable(user_db_path(username))
+    try:
+        upsert_manual_price(
+            con,
+            symbol=symbol,
+            price_date=price_date,
+            close=close,
+            open_price=abs(_signed_float(row.get("open_pric"))) or None,
+            high=abs(_signed_float(row.get("high_pric"))) or None,
+            low=abs(_signed_float(row.get("low_pric"))) or None,
+            volume=_clean_int(row.get("acc_trde_qty")) or None,
+            source="kiwoom-usa20590",
+        )
+    finally:
+        con.close()
+    return {"symbol": symbol, "date": price_date.isoformat(), "close": close}
+
+
+def _refresh_symbol_market_status(
+    username: str,
+    source: dict[str, str],
+    credentials: KiwoomCredentials | None,
+) -> dict[str, Any]:
+    if credentials is None:
+        now = datetime.now(timezone(timedelta(hours=9)))
+        return {
+            "symbol": source["symbol"],
+            "stex_tp": default_us_stock_exchange_code(source["symbol"]),
+            "is_trading_day": is_us_trading_day(now.date()),
+            "source": "calendar-fallback",
+        }
+    token, renewed = _ensure_user_kiwoom_token(
+        username, source["kind"], source["profile"], credentials
+    )
+    stex_tp = _resolve_user_exchange_code(credentials, token, source["symbol"])
+    quote = request_us_stock_quote(
+        credentials, token, stex_tp=stex_tp, stk_cd=source["symbol"]
+    )
+    return {
+        "symbol": source["symbol"],
+        "stex_tp": quote.get("stex_tp") or stex_tp,
+        "current_price": _clean_number_text(quote.get("cur_prc")),
+        "previous_close": _clean_number_text(quote.get("base_close_pric")),
+        "trade_suspend_type": str(quote.get("trd_susp_tp") or ""),
+        "token_renewed": renewed,
+        "source": "kiwoom-usa20100",
+    }
+
+
+def _refresh_symbol_close_prices(
+    username: str,
+    source: dict[str, str],
+    credentials: KiwoomCredentials | None,
+    reference_day: date,
+) -> dict[str, Any]:
+    if credentials is None:
+        saved: list[dict[str, Any]] = []
+        start_day = reference_day - timedelta(days=7)
+        for bar in fetch_yahoo_daily(source["symbol"], start_day, reference_day):
+            if bar.price_date > reference_day:
+                continue
+            con = _connect_writable(user_db_path(username))
+            try:
+                upsert_manual_price(
+                    con,
+                    symbol=source["symbol"],
+                    price_date=bar.price_date,
+                    close=bar.close,
+                    open_price=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    volume=bar.volume,
+                    source="yahoo-chart",
+                )
+            finally:
+                con.close()
+            saved.append(
+                {
+                    "symbol": source["symbol"],
+                    "date": bar.price_date.isoformat(),
+                    "close": bar.close,
+                }
+            )
+        latest = [row for row in saved if row["date"] <= reference_day.isoformat()]
+        return {
+            "symbol": source["symbol"],
+            "stex_tp": default_us_stock_exchange_code(source["symbol"]),
+            "reference_date": reference_day.isoformat(),
+            "saved": latest[-1:] if latest else [],
+            "source": "yahoo-chart",
+        }
+    token, renewed = _ensure_user_kiwoom_token(
+        username, source["kind"], source["profile"], credentials
+    )
+    stex_tp = _resolve_user_exchange_code(credentials, token, source["symbol"])
+    body = request_us_daily_prices(
+        credentials,
+        token,
+        stex_tp=stex_tp,
+        stk_cd=source["symbol"],
+        base_dt=reference_day.strftime("%Y%m%d"),
+    )
+    saved: list[dict[str, Any]] = []
+    for row in _result_rows(body):
+        row_date = _parse_kiwoom_yyyymmdd(row.get("dt"))
+        if row_date is None or row_date > reference_day:
+            continue
+        saved_row = _upsert_kiwoom_daily_price(username, source["symbol"], row)
+        if saved_row is not None:
+            saved.append(saved_row)
+        break
+    return {
+        "symbol": source["symbol"],
+        "stex_tp": stex_tp,
+        "reference_date": reference_day.isoformat(),
+        "saved": saved,
+        "token_renewed": renewed,
+        "source": "kiwoom-usa20590",
+    }
+
+
+def run_due_market_data_refresh(
+    usernames: list[str], now: datetime | None = None
+) -> dict[str, Any]:
+    now = now or datetime.now(timezone(timedelta(hours=9)))
+    state = _read_market_data_state()
+    result: dict[str, Any] = {
+        "ok": True,
+        "ran_market_status": False,
+        "ran_close_prices": False,
+        "messages": [],
+    }
+    symbol_sources = _market_data_symbol_sources(usernames)
+    if not symbol_sources:
+        return result
+
+    last_status_at = _parse_state_datetime(state.get("last_market_status_at"))
+    if last_status_at is None or now - last_status_at >= MARKET_STATUS_INTERVAL:
+        status_rows: list[dict[str, Any]] = []
+        for symbol, item in sorted(symbol_sources.items()):
+            try:
+                status_rows.append(
+                    _refresh_symbol_market_status(
+                        item["username"], item["source"], item["credentials"]
+                    )
+                )
+            except Exception as exc:
+                status_rows.append({"symbol": symbol, "ok": False, "message": str(exc)})
+        state["last_market_status_at"] = now.isoformat(timespec="seconds")
+        state["market_status"] = status_rows
+        result["ran_market_status"] = True
+        result["messages"].append(f"market status {len(status_rows)} symbols")
+
+    reference_day = _market_reference_day(now)
+    slot = _market_close_slot(now)
+    close_runs = dict(state.get("close_price_runs") or {})
+    close_key = f"{reference_day.isoformat()}:{slot}" if slot else ""
+    should_refresh_close = bool(slot and close_key not in close_runs)
+    if not should_refresh_close and state.get("last_close_reference_date") != reference_day.isoformat():
+        should_refresh_close = now.strftime("%H:%M") >= MARKET_CLOSE_REFRESH_TIMES[-1]
+        close_key = f"{reference_day.isoformat()}:catchup"
+        if close_key in close_runs:
+            should_refresh_close = False
+
+    if should_refresh_close:
+        close_rows: list[dict[str, Any]] = []
+        for symbol, item in sorted(symbol_sources.items()):
+            if symbol not in MARKET_PRICE_SYMBOLS:
+                continue
+            try:
+                close_rows.append(
+                    _refresh_symbol_close_prices(
+                        item["username"], item["source"], item["credentials"], reference_day
+                    )
+                )
+            except Exception as exc:
+                close_rows.append({"symbol": symbol, "ok": False, "message": str(exc)})
+        close_runs[close_key] = "ok" if close_rows and all(row.get("saved") for row in close_rows) else "failed"
+        state["close_price_runs"] = close_runs
+        state["last_close_reference_date"] = reference_day.isoformat()
+        state["last_close_price_at"] = now.isoformat(timespec="seconds")
+        state["close_prices"] = close_rows
+        result["ran_close_prices"] = True
+        result["messages"].append(f"close prices {reference_day} {len(close_rows)} symbols")
+
+    _write_market_data_state(state)
+    return result
 
 
 def _mark_infinite_schedule_attempt(

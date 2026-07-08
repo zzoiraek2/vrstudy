@@ -37,6 +37,7 @@ from .data import (
     put_vr_schedule,
     rename_infinite_web_profile,
     rename_vr_web_profile,
+    run_due_market_data_refresh,
     run_due_infinite_schedules,
     run_due_telegram_schedules,
     run_due_vr_schedules,
@@ -192,6 +193,7 @@ async def _infinite_schedule_loop() -> None:
     while True:
         try:
             usernames = list(load_users().keys())
+            await asyncio.to_thread(run_due_market_data_refresh, usernames)
             await asyncio.to_thread(run_due_vr_schedules, usernames)
             await asyncio.to_thread(run_due_infinite_schedules, usernames)
             await asyncio.to_thread(run_due_telegram_schedules, usernames)
