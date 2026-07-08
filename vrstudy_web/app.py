@@ -36,6 +36,7 @@ from .data import (
     rename_infinite_web_profile,
     rename_vr_web_profile,
     run_due_infinite_schedules,
+    run_due_telegram_schedules,
     save_infinite_web_execution,
     save_vr_web_cycle_input,
     send_telegram_selected_message,
@@ -86,6 +87,13 @@ class TelegramSettingsRequest(BaseModel):
     send_infinite_summary: bool = True
     send_order_status: bool = True
     send_api_order_result: bool = True
+    scheduled_send_enabled: bool = False
+    scheduled_send_time: str = "08:30"
+    scheduled_send_weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    scheduled_last_attempt_date: str = ""
+    scheduled_last_run_at: str = ""
+    scheduled_last_status: str = ""
+    scheduled_last_message: str = ""
     include_paused: bool = False
 
 
@@ -176,6 +184,7 @@ async def _infinite_schedule_loop() -> None:
         try:
             usernames = list(load_users().keys())
             await asyncio.to_thread(run_due_infinite_schedules, usernames)
+            await asyncio.to_thread(run_due_telegram_schedules, usernames)
         except Exception:
             pass
         await asyncio.sleep(30)

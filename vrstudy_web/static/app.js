@@ -2062,9 +2062,34 @@ async function testKiwoomToken(kind) {
   text(messageIdForKind(kind), result.message || (result.ok ? "토큰 발급 성공" : "토큰 발급 실패"));
 }
 
+function renderTelegramSchedule(data) {
+  const form = document.getElementById("telegram-form");
+  if (!form) return;
+  const weekdays = new Set((data?.scheduled_send_weekdays || [0, 1, 2, 3, 4]).map((day) => String(day)));
+  form.querySelectorAll('input[name="telegram_schedule_weekday"]').forEach((input) => {
+    input.checked = weekdays.has(input.value);
+  });
+  renderFields("telegram-schedule-last", data || {}, [
+    ["최근 상태", "scheduled_last_status", (value) => value || "-"],
+    ["최근 실행", "scheduled_last_run_at", (value) => value || "-"],
+    ["최근 메시지", "scheduled_last_message", (value) => value || "-"],
+  ]);
+}
+
+function telegramPayload() {
+  const form = document.getElementById("telegram-form");
+  const payload = formValues(form);
+  payload.scheduled_send_weekdays = Array.from(
+    form.querySelectorAll('input[name="telegram_schedule_weekday"]:checked'),
+  ).map((input) => Number(input.value));
+  delete payload.telegram_schedule_weekday;
+  return payload;
+}
+
 async function loadTelegramForm() {
   const data = await api("/api/telegram");
   setFormValues(document.getElementById("telegram-form"), data);
+  renderTelegramSchedule(data);
   text(
     "telegram-message",
     data.has_bot_token ? `저장된 Bot Token: ${data.bot_token_masked}` : "저장된 Bot Token 없음",
@@ -2073,11 +2098,16 @@ async function loadTelegramForm() {
 
 async function saveTelegramForm(event) {
   event.preventDefault();
-  const payload = formValues(document.getElementById("telegram-form"));
+  const payload = telegramPayload();
+  if (payload.scheduled_send_enabled && !payload.scheduled_send_weekdays.length) {
+    text("telegram-message", "정기발송 요일을 1개 이상 선택해야 합니다.");
+    return;
+  }
   const data = await api("/api/telegram", {
     method: "PUT",
     body: JSON.stringify(payload),
   });
+  renderTelegramSchedule(data);
   text("telegram-message", data.has_bot_token ? "텔레그램 저장 완료" : "텔레그램 저장 완료 / 토큰 없음");
 }
 

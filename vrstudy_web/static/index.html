@@ -696,19 +696,42 @@
                 <span>주문행 최대 개수</span>
                 <input name="order_row_limit" type="number" min="1" max="100" />
               </label>
+              <div class="settings-section-title">이벤트 발송</div>
               <div class="checkbox-grid">
                 <label><input name="auto_send_on_calculation" type="checkbox" /> 산출 완료 시 자동 발송</label>
                 <label><input name="auto_send_vr_orders" type="checkbox" /> VR 주문표 자동 발송</label>
                 <label><input name="auto_send_infinite_orders" type="checkbox" /> 무한매수법 주문표 자동 발송</label>
+                <label><input name="send_api_order_result" type="checkbox" /> API 주문결과 발송</label>
+              </div>
+              <div class="settings-section-title">정기발송 항목</div>
+              <div class="checkbox-grid">
                 <label><input name="send_order_table" type="checkbox" /> 주문표 포함</label>
                 <label><input name="send_due" type="checkbox" /> 작성 입력 필요 / 미작성</label>
                 <label><input name="send_dashboard" type="checkbox" /> 대시보드 총괄 요약</label>
                 <label><input name="send_vr_summary" type="checkbox" /> VR 프로필 요약</label>
                 <label><input name="send_infinite_summary" type="checkbox" /> 무한매수법 프로필 요약</label>
                 <label><input name="send_order_status" type="checkbox" /> 주문표 상태 요약</label>
-                <label><input name="send_api_order_result" type="checkbox" /> API 주문결과 발송</label>
                 <label><input name="include_paused" type="checkbox" /> 산출 중단 프로필 포함</label>
               </div>
+              <div class="settings-section-title">정기발송</div>
+              <label class="schedule-toggle">
+                <span>정기발송 사용</span>
+                <input name="scheduled_send_enabled" type="checkbox" />
+              </label>
+              <label>
+                <span>발송 시간</span>
+                <input name="scheduled_send_time" type="time" />
+              </label>
+              <div class="checkbox-grid telegram-schedule-weekdays">
+                <label><input name="telegram_schedule_weekday" type="checkbox" value="0" /> 월</label>
+                <label><input name="telegram_schedule_weekday" type="checkbox" value="1" /> 화</label>
+                <label><input name="telegram_schedule_weekday" type="checkbox" value="2" /> 수</label>
+                <label><input name="telegram_schedule_weekday" type="checkbox" value="3" /> 목</label>
+                <label><input name="telegram_schedule_weekday" type="checkbox" value="4" /> 금</label>
+                <label><input name="telegram_schedule_weekday" type="checkbox" value="5" /> 토</label>
+                <label><input name="telegram_schedule_weekday" type="checkbox" value="6" /> 일</label>
+              </div>
+              <div class="readonly-form single" id="telegram-schedule-last"></div>
               <div class="form-actions">
                 <button type="submit">설정 저장</button>
                 <button id="test-telegram" type="button">테스트 메시지</button>
@@ -740,6 +763,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260708_schedule_modes"></script>
+    <script src="/assets/app.js?v=20260708_telegram_schedule"></script>
   </body>
 </html>

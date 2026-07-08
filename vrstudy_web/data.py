@@ -3479,10 +3479,105 @@ def put_telegram_settings(username: str, payload: dict[str, Any]) -> dict[str, A
         send_infinite_summary=bool(raw.get("send_infinite_summary")),
         send_order_status=bool(raw.get("send_order_status")),
         send_api_order_result=bool(raw.get("send_api_order_result")),
+        scheduled_send_enabled=bool(raw.get("scheduled_send_enabled")),
+        scheduled_send_time=_validate_schedule_time(
+            raw.get("scheduled_send_time") or current.scheduled_send_time or "08:30"
+        ),
+        scheduled_send_weekdays=_validate_schedule_weekdays(
+            raw.get("scheduled_send_weekdays")
+            or current.scheduled_send_weekdays
+            or [0, 1, 2, 3, 4]
+        ),
+        scheduled_last_attempt_date=str(
+            raw.get("scheduled_last_attempt_date")
+            or current.scheduled_last_attempt_date
+            or ""
+        ),
+        scheduled_last_run_at=str(
+            raw.get("scheduled_last_run_at") or current.scheduled_last_run_at or ""
+        ),
+        scheduled_last_status=str(
+            raw.get("scheduled_last_status") or current.scheduled_last_status or ""
+        ),
+        scheduled_last_message=str(
+            raw.get("scheduled_last_message") or current.scheduled_last_message or ""
+        ),
         include_paused=bool(raw.get("include_paused")),
     )
     save_telegram_settings(settings, telegram_settings_path(username))
     return get_telegram_settings(username)
+
+
+def _mark_telegram_schedule_attempt(
+    username: str,
+    settings: TelegramSettings,
+    now: datetime,
+    status: str,
+    message: str,
+) -> TelegramSettings:
+    updated = replace(
+        settings,
+        scheduled_last_attempt_date=now.date().isoformat(),
+        scheduled_last_run_at=now.isoformat(timespec="seconds"),
+        scheduled_last_status=status,
+        scheduled_last_message=message[:1000],
+    )
+    save_telegram_settings(updated, telegram_settings_path(username))
+    return updated
+
+
+def run_due_telegram_schedules(
+    usernames: list[str], now: datetime | None = None
+) -> list[dict[str, Any]]:
+    now = now or datetime.now(timezone(timedelta(hours=9)))
+    today = now.date().isoformat()
+    current_time = now.strftime("%H:%M")
+    results: list[dict[str, Any]] = []
+    for username in usernames:
+        settings = load_telegram_settings(telegram_settings_path(username))
+        if not settings.scheduled_send_enabled:
+            continue
+        if not settings.bot_token.strip() or not settings.chat_id.strip():
+            continue
+        try:
+            scheduled_time = _validate_schedule_time(settings.scheduled_send_time)
+            weekdays = _validate_schedule_weekdays(settings.scheduled_send_weekdays)
+        except Exception as exc:
+            result = {"ok": False, "username": username, "message": str(exc)}
+            results.append(result)
+            _mark_telegram_schedule_attempt(username, settings, now, "failed", str(exc))
+            continue
+        if now.weekday() not in weekdays:
+            continue
+        if current_time < scheduled_time:
+            continue
+        if settings.scheduled_last_attempt_date == today:
+            continue
+        running = _mark_telegram_schedule_attempt(
+            username, settings, now, "running", "정기발송 중..."
+        )
+        try:
+            message = build_telegram_summary_message(username, running)
+            send_telegram_message(running, message)
+            result = {
+                "ok": True,
+                "username": username,
+                "message": "텔레그램 정기발송 완료",
+            }
+            _mark_telegram_schedule_attempt(
+                username, running, now, "ok", result["message"]
+            )
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "username": username,
+                "message": f"텔레그램 정기발송 실패: {exc}",
+            }
+            _mark_telegram_schedule_attempt(
+                username, running, now, "failed", result["message"]
+            )
+        results.append(result)
+    return results
 
 
 def send_telegram_test_message(username: str) -> dict[str, Any]:
