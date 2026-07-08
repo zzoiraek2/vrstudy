@@ -14,6 +14,7 @@ const state = {
   infiniteOrderResult: null,
   infiniteSchedule: null,
   telegramSettings: null,
+  mobileScheduleKind: "",
   dashboardCharts: {
     vrProfile: "",
     infiniteProfile: "",
@@ -613,6 +614,90 @@ function schedulePayload(kind) {
 function setScheduleState(kind, schedule) {
   if (kind === "vr") state.vrSchedule = schedule;
   else state.infiniteSchedule = schedule;
+}
+
+function scheduleState(kind) {
+  return kind === "vr" ? state.vrSchedule : state.infiniteSchedule;
+}
+
+function schedulePayloadFromForm(form, kind) {
+  const weekdays = [...form.querySelectorAll('input[name="weekday"]:checked')]
+    .map((input) => Number.parseInt(input.value, 10))
+    .filter((value) => Number.isFinite(value));
+  const payload = {
+    enabled: Boolean(form.elements.enabled.checked),
+    time: form.elements.time.value || "15:55",
+    weekdays,
+  };
+  const modeSelect = form.querySelector('select[name="mode"]');
+  if (kind === "infinite" && modeSelect) payload.mode = modeSelect.value || "after_input";
+  return payload;
+}
+
+function renderMobileScheduleSheet(kind) {
+  const form = document.getElementById("mobile-schedule-form");
+  if (!form) return;
+  const schedule = scheduleState(kind) || {};
+  const isVr = kind === "vr";
+  state.mobileScheduleKind = kind;
+  text("mobile-schedule-caption", isVr ? "VR" : "무한매수법");
+  text("mobile-schedule-title", isVr ? "VR 자동 실행 스케줄" : "무한매수법 자동 실행 스케줄");
+  form.elements.enabled.checked = Boolean(schedule.enabled);
+  form.elements.time.value = schedule.time || "15:55";
+  const modeField = document.getElementById("mobile-schedule-mode-field");
+  if (modeField) modeField.hidden = isVr;
+  if (form.elements.mode) form.elements.mode.value = schedule.mode || "after_input";
+  const weekdays = new Set((schedule.weekdays || [0, 1, 2, 3, 4]).map((day) => String(day)));
+  form.querySelectorAll('input[name="weekday"]').forEach((input) => {
+    input.checked = weekdays.has(input.value);
+  });
+  renderFields("mobile-schedule-last", schedule, [
+    ["최근 상태", "last_status", (value) => value || "-"],
+    ["최근 실행시각", "last_run_at", (value) => value || "-"],
+    ["최근 메시지", "last_message", (value) => value || "-"],
+  ]);
+  text("mobile-schedule-message", "");
+}
+
+function openMobileScheduleSheet(kind) {
+  const profile = selectedScheduleProfile(kind);
+  if (!profile) return;
+  renderMobileScheduleSheet(kind);
+  const sheet = document.getElementById("mobile-schedule-sheet");
+  if (sheet) sheet.hidden = false;
+}
+
+function closeMobileScheduleSheet() {
+  const sheet = document.getElementById("mobile-schedule-sheet");
+  if (sheet) sheet.hidden = true;
+  state.mobileScheduleKind = "";
+}
+
+async function saveMobileSchedule(event) {
+  event.preventDefault();
+  const kind = state.mobileScheduleKind;
+  const form = document.getElementById("mobile-schedule-form");
+  if (!kind || !form) return;
+  const profile = selectedScheduleProfile(kind);
+  if (!profile) return;
+  const payload = schedulePayloadFromForm(form, kind);
+  if (!payload.weekdays.length) {
+    text("mobile-schedule-message", "요일을 1개 이상 선택하세요.");
+    return;
+  }
+  text("mobile-schedule-message", "스케줄 저장 중...");
+  try {
+    const schedule = await api(`/api/${kind}/profiles/${encodeURIComponent(profile)}/schedule`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    setScheduleState(kind, schedule);
+    renderSchedule(kind, schedule);
+    renderMobileScheduleSheet(kind);
+    text("mobile-schedule-message", "스케줄 저장 완료");
+  } catch (error) {
+    text("mobile-schedule-message", error.message);
+  }
 }
 
 function selectedScheduleProfile(kind) {
@@ -2539,6 +2624,10 @@ document.querySelectorAll("[data-mobile-tab]").forEach((button) => {
   });
 });
 
+document.querySelectorAll("[data-mobile-schedule]").forEach((button) => {
+  button.addEventListener("click", () => openMobileScheduleSheet(button.dataset.mobileSchedule));
+});
+
 document.querySelectorAll(".inner-tabs").forEach((group) => {
   group.querySelectorAll(".inner-tab").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2660,6 +2749,12 @@ document.getElementById("vr-api-form").addEventListener("submit", (event) => sav
 document.getElementById("infinite-api-form").addEventListener("submit", (event) => saveKiwoomForm("infinite", event));
 document.getElementById("vr-schedule-form").addEventListener("submit", saveVrSchedule);
 document.getElementById("infinite-schedule-form").addEventListener("submit", saveInfiniteSchedule);
+document.getElementById("mobile-schedule-form").addEventListener("submit", saveMobileSchedule);
+document.getElementById("mobile-schedule-close").addEventListener("click", closeMobileScheduleSheet);
+document.getElementById("mobile-schedule-cancel").addEventListener("click", closeMobileScheduleSheet);
+document.getElementById("mobile-schedule-sheet").addEventListener("click", (event) => {
+  if (event.target.id === "mobile-schedule-sheet") closeMobileScheduleSheet();
+});
 document.getElementById("reload-telegram").addEventListener("click", loadTelegramForm);
 document.getElementById("test-telegram").addEventListener("click", testTelegram);
 document.getElementById("send-telegram-selected").addEventListener("click", sendTelegramSelected);
@@ -2674,6 +2769,10 @@ document.getElementById("profile-create-modal").addEventListener("click", (event
   if (event.target.id === "profile-create-modal") closeProfileCreateModal();
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !document.getElementById("mobile-schedule-sheet").hidden) {
+    closeMobileScheduleSheet();
+    return;
+  }
   if (event.key === "Escape" && !document.getElementById("profile-create-modal").hidden) {
     closeProfileCreateModal();
   }

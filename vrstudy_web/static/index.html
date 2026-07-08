@@ -848,8 +848,8 @@
             </div>
             <div id="mobile-automation-cards" class="mobile-card-list"></div>
             <div class="mobile-action-row">
-              <button type="button" data-mobile-tab="vr-tab" data-mobile-open="vr-schedule-panel">VR 스케줄</button>
-              <button type="button" data-mobile-tab="infinite-tab" data-mobile-open="infinite-schedule-panel">무매 스케줄</button>
+              <button type="button" data-mobile-schedule="vr">VR 스케줄</button>
+              <button type="button" data-mobile-schedule="infinite">무매 스케줄</button>
               <button type="button" data-mobile-tab="telegram-tab">텔레그램</button>
             </div>
           </section>
@@ -879,6 +879,49 @@
         <button class="mobile-nav-button" type="button" data-tab="mobile-settings-tab">설정</button>
       </nav>
     </main>
+    <div id="mobile-schedule-sheet" class="mobile-sheet-overlay" hidden>
+      <section class="mobile-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-schedule-title">
+        <form id="mobile-schedule-form">
+          <div class="mobile-sheet-header">
+            <div>
+              <span id="mobile-schedule-caption">스케줄</span>
+              <h2 id="mobile-schedule-title">자동 실행 스케줄</h2>
+            </div>
+            <button id="mobile-schedule-close" type="button" aria-label="닫기">x</button>
+          </div>
+          <label class="schedule-toggle">
+            <span>자동 실행</span>
+            <input name="enabled" type="checkbox" />
+          </label>
+          <label>
+            <span>동작 시간</span>
+            <input name="time" type="time" />
+          </label>
+          <label id="mobile-schedule-mode-field">
+            <span>동작 방식</span>
+            <select name="mode">
+              <option value="after_input">체결입력 후 주문실행</option>
+              <option value="orders_only">주문실행</option>
+            </select>
+          </label>
+          <div class="checkbox-grid schedule-weekdays">
+            <label><input name="weekday" type="checkbox" value="0" /> 월</label>
+            <label><input name="weekday" type="checkbox" value="1" /> 화</label>
+            <label><input name="weekday" type="checkbox" value="2" /> 수</label>
+            <label><input name="weekday" type="checkbox" value="3" /> 목</label>
+            <label><input name="weekday" type="checkbox" value="4" /> 금</label>
+            <label><input name="weekday" type="checkbox" value="5" /> 토</label>
+            <label><input name="weekday" type="checkbox" value="6" /> 일</label>
+          </div>
+          <div class="readonly-form single" id="mobile-schedule-last"></div>
+          <div class="mobile-sheet-actions">
+            <button type="submit">저장</button>
+            <button id="mobile-schedule-cancel" type="button">취소</button>
+          </div>
+          <p id="mobile-schedule-message" class="message muted-message"></p>
+        </form>
+      </section>
+    </div>
     <div id="profile-create-modal" class="modal-overlay" hidden>
       <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="profile-create-title">
         <form id="profile-create-form">

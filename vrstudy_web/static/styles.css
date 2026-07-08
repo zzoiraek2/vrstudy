@@ -325,6 +325,71 @@ input[readonly]:focus,
   display: none;
 }
 
+.mobile-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  align-items: end;
+  background: rgba(26, 43, 53, 0.28);
+}
+
+.mobile-sheet-overlay[hidden] {
+  display: none;
+}
+
+.mobile-sheet {
+  width: 100%;
+  max-height: 88vh;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 14px 14px 0 0;
+  background: var(--bg);
+  box-shadow: 0 -14px 32px rgba(26, 43, 53, 0.2);
+}
+
+.mobile-sheet form {
+  display: grid;
+  gap: 12px;
+}
+
+.mobile-sheet-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-sheet-header span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-sheet-header h2 {
+  margin: 2px 0 0;
+  font-size: 19px;
+}
+
+.mobile-sheet-header button {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.mobile-sheet-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mobile-sheet-actions button:first-child {
+  border-color: var(--accent-dark);
+  background: var(--accent);
+  color: #fff;
+}
+
 .mobile-screen {
   display: grid;
   gap: 14px;
