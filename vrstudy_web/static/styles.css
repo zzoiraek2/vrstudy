@@ -1354,6 +1354,11 @@ tbody tr.selected-data-row {
     max-height: 220px;
   }
 
+  #dashboard-tab .dashboard-grid .dashboard-table {
+    max-height: none;
+    overflow: visible;
+  }
+
   .tabs {
     display: none;
   }
