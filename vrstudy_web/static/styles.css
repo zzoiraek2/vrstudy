@@ -549,6 +549,22 @@ input[readonly]:focus,
   text-align: right;
 }
 
+.mobile-link-card {
+  cursor: pointer;
+}
+
+.mobile-link-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mobile-link-chevron {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 18px;
+  line-height: 1;
+}
+
 .mobile-empty {
   padding: 12px;
   color: var(--muted);
@@ -1379,6 +1395,38 @@ tbody tr.selected-data-row {
   .inner-tab,
   .order-panel-tab {
     flex: 0 0 auto;
+  }
+
+  #telegram-tab,
+  #telegram-tab .panel,
+  #telegram-tab .settings-form,
+  #telegram-tab .checkbox-grid {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #telegram-tab .settings-form {
+    padding: 12px;
+    overflow-x: hidden;
+  }
+
+  #telegram-tab .checkbox-grid {
+    gap: 8px;
+  }
+
+  #telegram-tab .checkbox-grid label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  #telegram-tab .form-actions {
+    flex-wrap: wrap;
+  }
+
+  #telegram-tab .form-actions button {
+    flex: 1 1 140px;
+    min-width: 0;
   }
 
   .mobile-summary-grid {

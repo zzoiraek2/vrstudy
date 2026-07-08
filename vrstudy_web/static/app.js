@@ -154,7 +154,10 @@ function activateMainTab(tabId) {
     button.classList.toggle("active", button.dataset.tab === tabId);
   });
   document.querySelectorAll(".mobile-nav-button").forEach((button) => {
-    button.classList.toggle("active", button.dataset.tab === tabId);
+    button.classList.toggle(
+      "active",
+      button.dataset.tab === tabId || (tabId === "telegram-tab" && button.dataset.tab === "mobile-settings-tab"),
+    );
   });
   document.querySelectorAll(".tab-page").forEach((page) => {
     page.classList.toggle("active", page.id === tabId);
@@ -1277,6 +1280,18 @@ function mobileProfileCard(title, rows, status = "") {
   return card;
 }
 
+function mobileLinkCard(title, rows, status = "") {
+  const card = mobileProfileCard(title, rows, status);
+  card.classList.add("mobile-link-card");
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  const chevron = document.createElement("span");
+  chevron.className = "mobile-link-chevron";
+  chevron.textContent = ">";
+  card.querySelector(".mobile-profile-title")?.appendChild(chevron);
+  return card;
+}
+
 function mobileStatusBanner(containerId, title, message, tone = "neutral") {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -1446,18 +1461,6 @@ function mobileScheduleCard(title, schedule, modeText = "") {
 }
 
 function renderMobileAutomation() {
-  const telegram = state.telegramSettings || {};
-  const telegramEnabled = Boolean(telegram.scheduled_send_enabled);
-  const telegramCard = mobileProfileCard(
-    "텔레그램 정기발송",
-    [
-      ["상태", telegramEnabled ? "ON" : "OFF"],
-      ["시간", telegram.scheduled_send_time || "-"],
-      ["요일", mobileWeekdaysText(telegram.scheduled_send_weekdays)],
-      ["최근 실행", telegram.scheduled_last_run_at || "-"],
-    ],
-    telegramEnabled ? "활성" : "중지",
-  );
   setMobileCards("mobile-automation-cards", [
     mobileScheduleCard("VR 자동 주문", state.vrSchedule, "주문실행"),
     mobileScheduleCard(
@@ -1465,7 +1468,6 @@ function renderMobileAutomation() {
       state.infiniteSchedule,
       state.infiniteSchedule?.mode === "orders_only" ? "주문실행" : "체결입력 후 주문실행",
     ),
-    telegramCard,
   ], "자동 실행 설정이 없습니다.");
 }
 
@@ -1480,13 +1482,23 @@ function renderMobileSettings() {
       ["선택 VR", state.selectedVr || "-"],
       ["선택 무매", state.selectedInfinite || "-"],
     ]),
-    mobileProfileCard("텔레그램", [
+    mobileLinkCard("텔레그램", [
       ["Bot Token", telegram.has_bot_token ? "저장됨" : "없음"],
       ["Chat ID", telegram.chat_id ? "저장됨" : "없음"],
       ["API 주문결과", telegram.send_api_order_result ? "발송" : "미발송"],
       ["정기발송", telegram.scheduled_send_enabled ? "ON" : "OFF"],
-    ]),
+    ], "설정"),
   ], "설정 정보가 없습니다.");
+  const telegramCard = document.querySelector("#mobile-settings-cards .mobile-link-card");
+  if (telegramCard) {
+    telegramCard.addEventListener("click", () => activateMainTab("telegram-tab"));
+    telegramCard.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activateMainTab("telegram-tab");
+      }
+    });
+  }
 }
 
 function renderDashboard(data) {
@@ -2716,9 +2728,6 @@ document.getElementById("mobile-schedule-sheet").addEventListener("click", (even
 document.getElementById("reload-telegram").addEventListener("click", loadTelegramForm);
 document.getElementById("test-telegram").addEventListener("click", testTelegram);
 document.getElementById("send-telegram-selected").addEventListener("click", sendTelegramSelected);
-document.getElementById("mobile-test-telegram").addEventListener("click", testTelegram);
-document.getElementById("mobile-send-telegram").addEventListener("click", sendTelegramSelected);
-document.getElementById("mobile-logout").addEventListener("click", () => logoutButton.click());
 document.getElementById("telegram-form").addEventListener("submit", saveTelegramForm);
 document.getElementById("profile-create-form").addEventListener("submit", submitProfileCreate);
 document.getElementById("profile-create-cancel").addEventListener("click", closeProfileCreateModal);
