@@ -590,6 +590,7 @@ DEFAULT_VR_SCHEDULE = {
 MARKET_STATUS_INTERVAL = timedelta(hours=1)
 MARKET_CLOSE_REFRESH_TIMES = ("06:10", "06:30", "07:00", "08:30")
 SCHEDULE_RUNTIME_KEYS = {"today_attempts_remaining"}
+SCHEDULE_CATCH_UP_WINDOW = timedelta(minutes=60)
 
 
 def _schedule_today(now: datetime | None = None) -> str:
@@ -607,6 +608,33 @@ def _with_schedule_runtime_fields(data: dict[str, Any]) -> dict[str, Any]:
 
 def _schedule_persistable(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if key not in SCHEDULE_RUNTIME_KEYS}
+
+
+def _schedule_due_state(schedule: dict[str, Any], now: datetime) -> dict[str, Any]:
+    scheduled_time = _validate_schedule_time(schedule.get("time") or "00:00")
+    scheduled_hour, scheduled_minute = (int(part) for part in scheduled_time.split(":"))
+    scheduled_at = now.replace(
+        hour=scheduled_hour,
+        minute=scheduled_minute,
+        second=0,
+        microsecond=0,
+    )
+    if now < scheduled_at:
+        return {"status": "pending", "scheduled_at": scheduled_at}
+    delay = now - scheduled_at
+    if delay > SCHEDULE_CATCH_UP_WINDOW:
+        return {
+            "status": "missed",
+            "scheduled_at": scheduled_at,
+            "delay_minutes": int(delay.total_seconds() // 60),
+        }
+    return {
+        "status": "due",
+        "scheduled_at": scheduled_at,
+        "delay_minutes": int(delay.total_seconds() // 60),
+    }
+
+
 MARKET_PRICE_SYMBOLS = ("TQQQ", "SOXL")
 
 
@@ -4037,7 +4065,9 @@ def _mark_infinite_schedule_attempt(
     updated["last_attempt_date"] = now.date().isoformat()
     updated["last_run_at"] = now.isoformat(timespec="seconds")
     updated["last_status"] = "ok" if result.get("ok") else "failed"
-    if result.get("skipped"):
+    if result.get("missed"):
+        updated["last_status"] = "missed"
+    elif result.get("skipped"):
         updated["last_status"] = "skipped"
     updated["last_message"] = str(result.get("message") or "")[:1000]
     return _write_infinite_schedule(username, profile_name, updated)
@@ -4054,10 +4084,63 @@ def _mark_vr_schedule_attempt(
     updated["last_attempt_date"] = now.date().isoformat()
     updated["last_run_at"] = now.isoformat(timespec="seconds")
     updated["last_status"] = "ok" if result.get("ok") else "failed"
-    if result.get("skipped"):
+    if result.get("missed"):
+        updated["last_status"] = "missed"
+    elif result.get("skipped"):
         updated["last_status"] = "skipped"
     updated["last_message"] = str(result.get("message") or "")[:1000]
     return _write_vr_schedule(username, profile_name, updated)
+
+
+def _schedule_missed_result(
+    strategy_label: str,
+    profile_name: str,
+    scheduled_at: datetime,
+    now: datetime,
+) -> dict[str, Any]:
+    message = (
+        "서버 중단 또는 지연으로 자동실행 허용시간을 초과했습니다. "
+        f"예정시각: {_display_datetime_text(scheduled_at)}, "
+        f"확인시각: {_display_datetime_text(now)}"
+    )
+    return {
+        "ok": False,
+        "skipped": True,
+        "missed": True,
+        "message": message,
+        "strategy": strategy_label,
+        "profile": profile_name,
+        "scheduled_at": scheduled_at.isoformat(timespec="seconds"),
+        "checked_at": now.isoformat(timespec="seconds"),
+    }
+
+
+def _send_schedule_missed_telegram(
+    username: str,
+    strategy_label: str,
+    profile_name: str,
+    scheduled_at: datetime,
+    now: datetime,
+    reason: str,
+) -> dict[str, Any]:
+    settings = load_telegram_settings(telegram_settings_path(username))
+    if not settings.bot_token.strip() or not settings.chat_id.strip():
+        return {"sent": False, "message": "텔레그램 Bot Token 또는 Chat ID 없음"}
+    text = "\n".join(
+        [
+            "[자동주문 미실행]",
+            f"전략: {strategy_label}",
+            f"프로필: {profile_name}",
+            f"예정시각: {_display_datetime_text(scheduled_at)}",
+            f"확인시각: {_display_datetime_text(now)}",
+            f"사유: {reason}",
+        ]
+    )
+    try:
+        send_telegram_message(settings, text)
+        return {"sent": True, "message": "자동주문 미실행 텔레그램 발송 완료"}
+    except Exception as exc:
+        return {"sent": False, "message": f"자동주문 미실행 텔레그램 발송 실패: {exc}"}
 
 
 def run_due_vr_schedules(
@@ -4065,7 +4148,6 @@ def run_due_vr_schedules(
 ) -> list[dict[str, Any]]:
     now = now or datetime.now(timezone(timedelta(hours=9)))
     today = now.date().isoformat()
-    current_time = now.strftime("%H:%M")
     results: list[dict[str, Any]] = []
     for username in usernames:
         try:
@@ -4093,9 +4175,28 @@ def run_due_vr_schedules(
                 continue
             if now.weekday() not in schedule.get("weekdays", []):
                 continue
-            if current_time < str(schedule.get("time") or "00:00"):
-                continue
             if schedule.get("last_attempt_date") == today:
+                continue
+            due_state = _schedule_due_state(schedule, now)
+            if due_state["status"] == "pending":
+                continue
+            if due_state["status"] == "missed":
+                result = _schedule_missed_result(
+                    "VR",
+                    profile_name,
+                    due_state["scheduled_at"],
+                    now,
+                )
+                result["telegram_missed"] = _send_schedule_missed_telegram(
+                    username,
+                    "VR",
+                    profile_name,
+                    due_state["scheduled_at"],
+                    now,
+                    result["message"],
+                )
+                _mark_vr_schedule_attempt(username, profile_name, schedule, now, result)
+                results.append({"username": username, "profile": profile_name, **result})
                 continue
             running = {
                 **schedule,
@@ -4120,7 +4221,6 @@ def run_due_infinite_schedules(
 ) -> list[dict[str, Any]]:
     now = now or datetime.now(timezone(timedelta(hours=9)))
     today = now.date().isoformat()
-    current_time = now.strftime("%H:%M")
     results: list[dict[str, Any]] = []
     for username in usernames:
         try:
@@ -4148,9 +4248,28 @@ def run_due_infinite_schedules(
                 continue
             if now.weekday() not in schedule.get("weekdays", []):
                 continue
-            if current_time < str(schedule.get("time") or "00:00"):
-                continue
             if schedule.get("last_attempt_date") == today:
+                continue
+            due_state = _schedule_due_state(schedule, now)
+            if due_state["status"] == "pending":
+                continue
+            if due_state["status"] == "missed":
+                result = _schedule_missed_result(
+                    "무한매수법",
+                    profile_name,
+                    due_state["scheduled_at"],
+                    now,
+                )
+                result["telegram_missed"] = _send_schedule_missed_telegram(
+                    username,
+                    "무한매수법",
+                    profile_name,
+                    due_state["scheduled_at"],
+                    now,
+                    result["message"],
+                )
+                _mark_infinite_schedule_attempt(username, profile_name, schedule, now, result)
+                results.append({"username": username, "profile": profile_name, **result})
                 continue
             running = {
                 **schedule,
@@ -4293,7 +4412,6 @@ def run_due_telegram_schedules(
 ) -> list[dict[str, Any]]:
     now = now or datetime.now(timezone(timedelta(hours=9)))
     today = now.date().isoformat()
-    current_time = now.strftime("%H:%M")
     results: list[dict[str, Any]] = []
     for username in usernames:
         settings = load_telegram_settings(telegram_settings_path(username))
@@ -4311,9 +4429,35 @@ def run_due_telegram_schedules(
             continue
         if now.weekday() not in weekdays:
             continue
-        if current_time < scheduled_time:
-            continue
         if settings.scheduled_last_attempt_date == today:
+            continue
+        due_state = _schedule_due_state({"time": scheduled_time}, now)
+        if due_state["status"] == "pending":
+            continue
+        if due_state["status"] == "missed":
+            message = (
+                "서버 중단 또는 지연으로 텔레그램 정기발송 허용시간을 초과했습니다. "
+                f"예정시각: {_display_datetime_text(due_state['scheduled_at'])}, "
+                f"확인시각: {_display_datetime_text(now)}"
+            )
+            updated = _mark_telegram_schedule_attempt(
+                username, settings, now, "missed", message
+            )
+            result = {
+                "ok": False,
+                "skipped": True,
+                "missed": True,
+                "username": username,
+                "message": message,
+            }
+            try:
+                send_telegram_message(updated, f"[텔레그램 정기발송 미실행]\n{message}")
+            except Exception as exc:
+                result["message"] = f"{message} / 알림 발송 실패: {exc}"
+                _mark_telegram_schedule_attempt(
+                    username, updated, now, "missed", result["message"]
+                )
+            results.append(result)
             continue
         running = _mark_telegram_schedule_attempt(
             username, settings, now, "running", "정기발송 중..."

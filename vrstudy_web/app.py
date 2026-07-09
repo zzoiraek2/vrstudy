@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -205,18 +206,25 @@ SESSION_SECRET = ensure_session_secret(session_secret_path())
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
 app.mount("/vendor", StaticFiles(directory=VENDOR_DIR), name="vendor")
 _SCHEDULER_TASK: asyncio.Task | None = None
+_SCHEDULER_LAST_LOOP_AT = ""
+_SCHEDULER_LAST_ERROR = ""
 
 
 async def _infinite_schedule_loop() -> None:
+    global _SCHEDULER_LAST_ERROR, _SCHEDULER_LAST_LOOP_AT
     while True:
+        _SCHEDULER_LAST_LOOP_AT = datetime.now(timezone(timedelta(hours=9))).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
         try:
             usernames = list(load_users().keys())
             await asyncio.to_thread(run_due_market_data_refresh, usernames)
             await asyncio.to_thread(run_due_vr_schedules, usernames)
             await asyncio.to_thread(run_due_infinite_schedules, usernames)
             await asyncio.to_thread(run_due_telegram_schedules, usernames)
-        except Exception:
-            pass
+            _SCHEDULER_LAST_ERROR = ""
+        except Exception as exc:
+            _SCHEDULER_LAST_ERROR = str(exc)
         await asyncio.sleep(30)
 
 
@@ -279,6 +287,18 @@ def current_username(request: Request) -> str:
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/health")
+def health() -> dict[str, object]:
+    return {
+        "ok": True,
+        "service": "vrstudy",
+        "time": datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S"),
+        "scheduler_running": _SCHEDULER_TASK is not None and not _SCHEDULER_TASK.done(),
+        "scheduler_last_loop_at": _SCHEDULER_LAST_LOOP_AT,
+        "scheduler_last_error": _SCHEDULER_LAST_ERROR,
+    }
 
 
 @app.get("/api/me")
