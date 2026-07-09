@@ -590,6 +590,7 @@ function renderSchedule(kind, schedule) {
   });
   renderFields(`${kind}-schedule-last`, schedule || {}, [
     ["상태", "last_status", (value) => value || "-"],
+    ["금일 자동주문 가능횟수", "today_attempts_remaining", (value) => `${Number(value || 0)}회`],
     ["최근 시도일", "last_attempt_date", (value) => value || "-"],
     ["최근 실행시각", "last_run_at", (value) => value || "-"],
     ["최근 메시지", "last_message", (value) => value || "-"],
@@ -657,6 +658,7 @@ function renderMobileScheduleSheet(kind) {
   });
   renderFields("mobile-schedule-last", schedule, [
     ["프로필", "", () => profile || "선택된 프로필 없음"],
+    ["금일 자동주문 가능횟수", "today_attempts_remaining", (value) => `${Number(value || 0)}회`],
     ["최근 상태", "last_status", (value) => value || "-"],
     ["최근 실행시각", "last_run_at", (value) => value || "-"],
     ["최근 메시지", "last_message", (value) => value || "-"],
@@ -1454,6 +1456,7 @@ function mobileScheduleCard(title, schedule, modeText = "") {
       ["시간", schedule?.time || "-"],
       ["요일", mobileWeekdaysText(schedule?.weekdays)],
       ["동작", modeText || "-"],
+      ["금일 가능", `${Number(schedule?.today_attempts_remaining || 0)}회`],
       ["최근 실행", schedule?.last_run_at || "-"],
     ],
     enabled ? "활성" : "중지",

@@ -565,6 +565,24 @@ DEFAULT_VR_SCHEDULE = {
 
 MARKET_STATUS_INTERVAL = timedelta(hours=1)
 MARKET_CLOSE_REFRESH_TIMES = ("06:10", "06:30", "07:00", "08:30")
+SCHEDULE_RUNTIME_KEYS = {"today_attempts_remaining"}
+
+
+def _schedule_today(now: datetime | None = None) -> str:
+    now = now or datetime.now(timezone(timedelta(hours=9)))
+    return now.date().isoformat()
+
+
+def _with_schedule_runtime_fields(data: dict[str, Any]) -> dict[str, Any]:
+    result = dict(data)
+    result["today_attempts_remaining"] = (
+        0 if str(result.get("last_attempt_date") or "") == _schedule_today() else 1
+    )
+    return result
+
+
+def _schedule_persistable(data: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if key not in SCHEDULE_RUNTIME_KEYS}
 MARKET_PRICE_SYMBOLS = ("TQQQ", "SOXL")
 
 
@@ -683,7 +701,7 @@ def _read_infinite_schedule(username: str, profile_name: str) -> dict[str, Any]:
     data["time"] = _validate_schedule_time(data.get("time") or DEFAULT_INFINITE_SCHEDULE["time"])
     data["mode"] = _validate_schedule_mode(data.get("mode") or DEFAULT_INFINITE_SCHEDULE["mode"])
     data["weekdays"] = _validate_schedule_weekdays(data.get("weekdays") or DEFAULT_INFINITE_SCHEDULE["weekdays"])
-    return data
+    return _with_schedule_runtime_fields(data)
 
 
 def _read_vr_schedule(username: str, profile_name: str) -> dict[str, Any]:
@@ -699,14 +717,15 @@ def _read_vr_schedule(username: str, profile_name: str) -> dict[str, Any]:
     data["enabled"] = bool(data.get("enabled"))
     data["time"] = _validate_schedule_time(data.get("time") or DEFAULT_VR_SCHEDULE["time"])
     data["weekdays"] = _validate_schedule_weekdays(data.get("weekdays") or DEFAULT_VR_SCHEDULE["weekdays"])
-    return data
+    return _with_schedule_runtime_fields(data)
 
 
 def _write_vr_schedule(username: str, profile_name: str, data: dict[str, Any]) -> dict[str, Any]:
     path = _vr_schedule_path(username, profile_name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return data
+    stored = _schedule_persistable(data)
+    path.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return _with_schedule_runtime_fields(stored)
 
 
 def get_vr_schedule(username: str, profile_name: str) -> dict[str, Any]:
@@ -717,21 +736,23 @@ def get_vr_schedule(username: str, profile_name: str) -> dict[str, Any]:
 def put_vr_schedule(username: str, profile_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     vr_profile_detail(username, profile_name)
     current = _read_vr_schedule(username, profile_name)
-    current.update(
-        {
-            "enabled": bool(payload.get("enabled", current["enabled"])),
-            "time": _validate_schedule_time(payload.get("time", current["time"])),
-            "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
-        }
-    )
-    return _write_vr_schedule(username, profile_name, current)
+    next_schedule = {
+        **current,
+        "enabled": bool(payload.get("enabled", current["enabled"])),
+        "time": _validate_schedule_time(payload.get("time", current["time"])),
+        "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
+    }
+    if next_schedule["time"] != current["time"]:
+        next_schedule["last_attempt_date"] = ""
+    return _write_vr_schedule(username, profile_name, next_schedule)
 
 
 def _write_infinite_schedule(username: str, profile_name: str, data: dict[str, Any]) -> dict[str, Any]:
     path = _infinite_schedule_path(username, profile_name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return data
+    stored = _schedule_persistable(data)
+    path.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return _with_schedule_runtime_fields(stored)
 
 
 def get_infinite_schedule(username: str, profile_name: str) -> dict[str, Any]:
@@ -742,15 +763,16 @@ def get_infinite_schedule(username: str, profile_name: str) -> dict[str, Any]:
 def put_infinite_schedule(username: str, profile_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     infinite_profile_detail(username, profile_name)
     current = _read_infinite_schedule(username, profile_name)
-    current.update(
-        {
-            "enabled": bool(payload.get("enabled", current["enabled"])),
-            "time": _validate_schedule_time(payload.get("time", current["time"])),
-            "mode": _validate_schedule_mode(payload.get("mode", current["mode"])),
-            "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
-        }
-    )
-    return _write_infinite_schedule(username, profile_name, current)
+    next_schedule = {
+        **current,
+        "enabled": bool(payload.get("enabled", current["enabled"])),
+        "time": _validate_schedule_time(payload.get("time", current["time"])),
+        "mode": _validate_schedule_mode(payload.get("mode", current["mode"])),
+        "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
+    }
+    if next_schedule["time"] != current["time"] or next_schedule["mode"] != current["mode"]:
+        next_schedule["last_attempt_date"] = ""
+    return _write_infinite_schedule(username, profile_name, next_schedule)
 
 
 def _mask_secret(value: str) -> str:
@@ -3394,7 +3416,10 @@ def execute_vr_web_orders(
 
 
 def execute_infinite_web_orders(
-    username: str, profile_name: str, force_reorder: bool = False
+    username: str,
+    profile_name: str,
+    force_reorder: bool = False,
+    send_telegram: bool = True,
 ) -> dict[str, Any]:
     credentials = load_kiwoom_credentials(
         "infinite", profile_name, kiwoom_credentials_path(username)
@@ -3506,7 +3531,9 @@ def execute_infinite_web_orders(
             "order_date": basis_date.isoformat(),
             "order_datetime": order_datetime,
         }
-        return _with_api_order_result_telegram(username, "infinite", profile_name, result)
+        return _maybe_with_api_order_result_telegram(
+            username, "infinite", profile_name, result, send_telegram
+        )
     except KiwoomApiError as exc:
         result = {
             "ok": False,
@@ -3519,9 +3546,11 @@ def execute_infinite_web_orders(
             "order_date": basis_date.isoformat(),
             "order_datetime": order_datetime,
         }
-        return _with_api_order_result_telegram(username, "infinite", profile_name, result)
+        return _maybe_with_api_order_result_telegram(
+            username, "infinite", profile_name, result, send_telegram
+        )
     except Exception as exc:
-        return _with_api_order_result_telegram(
+        return _maybe_with_api_order_result_telegram(
             username,
             "infinite",
             profile_name,
@@ -3533,64 +3562,190 @@ def execute_infinite_web_orders(
                     username, "infinite", profile_name, date.today(), attempt_started_at
                 ),
             },
+            send_telegram,
         )
 
 
 def execute_infinite_after_input_workflow(
     username: str, profile_name: str, *, source: str = "manual"
 ) -> dict[str, Any]:
+    order_datetime = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+
+    def structured_result(
+        *,
+        ok: bool,
+        message: str,
+        plan_status: str,
+        plan_message: str = "",
+        buy_count: int = 0,
+        sell_count: int = 0,
+        attempt_status: str = "not_run",
+        attempt_message: str = "미실시",
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "ok": ok,
+            "message": message,
+            "source": source,
+            "order_datetime": order_datetime,
+            "order_plan_result": {
+                "status": plan_status,
+                "message": plan_message,
+                "buy_count": buy_count,
+                "sell_count": sell_count,
+            },
+            "order_attempt_result": {
+                "status": attempt_status,
+                "message": attempt_message,
+            },
+        }
+        if attempt_status == "not_run":
+            result["order_attempt_skipped"] = True
+        if extra:
+            result.update(extra)
+        return _with_api_order_result_telegram(username, "infinite", profile_name, result)
+
     detail = infinite_profile_detail(username, profile_name)
     if detail.get("order_executable"):
-        return {
-            "ok": False,
-            "skipped": True,
-            "message": "이미 해당 주문표가 있어 체결입력 후 주문실행을 건너뜁니다.",
-        }
+        message = "이미 해당 주문표가 있어 체결입력 후 주문실행을 건너뜁니다."
+        return structured_result(
+            ok=False,
+            message=message,
+            plan_status="failed",
+            plan_message=message,
+            attempt_status="not_run",
+            attempt_message="미실시",
+        )
     execution_input = detail.get("execution_input") or {}
     if not execution_input.get("allowed"):
-        return {
-            "ok": False,
-            "skipped": True,
-            "message": "체결입력 가능한 상태가 아닙니다.",
-        }
+        message = "체결입력 가능한 상태가 아닙니다."
+        return structured_result(
+            ok=False,
+            message=message,
+            plan_status="failed",
+            plan_message=message,
+            attempt_status="not_run",
+            attempt_message="미실시",
+        )
     preview = lookup_infinite_execution_preview(username, profile_name)
     if not preview.get("ok") or not preview.get("preview"):
+        message = preview.get("message") or "체결 결과 조회에 실패했습니다."
         return {
-            "ok": False,
-            "message": preview.get("message") or "체결 결과 조회에 실패했습니다.",
+            **structured_result(
+                ok=False,
+                message=message,
+                plan_status="failed",
+                plan_message=message,
+                attempt_status="not_run",
+                attempt_message="미실시",
+            ),
             "preview": preview,
         }
     preview_row = preview["preview"]
     trade_date = str(preview_row.get("trade_date") or "").strip()
     allowed_date = str(execution_input.get("trade_date") or "").strip()
     if not trade_date or trade_date == "-":
-        return {"ok": False, "message": "조회 결과에 체결 입력일이 없습니다.", "preview": preview}
-    if allowed_date and trade_date != allowed_date:
+        message = "조회 결과에 체결 입력일이 없습니다."
         return {
-            "ok": False,
-            "message": f"조회 입력일({trade_date})과 저장 가능한 입력일({allowed_date})이 다릅니다.",
+            **structured_result(
+                ok=False,
+                message=message,
+                plan_status="failed",
+                plan_message=message,
+                attempt_status="not_run",
+                attempt_message="미실시",
+            ),
+            "preview": preview,
+        }
+    if allowed_date and trade_date != allowed_date:
+        message = f"조회 입력일({trade_date})과 저장 가능한 입력일({allowed_date})이 다릅니다."
+        return {
+            **structured_result(
+                ok=False,
+                message=message,
+                plan_status="failed",
+                plan_message=message,
+                attempt_status="not_run",
+                attempt_message="미실시",
+            ),
             "preview": preview,
         }
     avg_price = float(preview_row.get("avg_price") or 0)
     if avg_price <= 0:
-        return {"ok": False, "message": "조회 결과에 평균단가가 없습니다.", "preview": preview}
-    save_infinite_web_execution(
-        username,
-        profile_name,
-        {
-            "trade_date": trade_date,
-            "avg_price": avg_price,
-            "buy_qty": int(preview_row.get("buy_qty") or 0),
-            "sell_qty": int(preview_row.get("sell_qty") or 0),
-            "cash_flow_amount": 0.0,
-        },
-    )
-    order_result = execute_infinite_web_orders(username, profile_name)
+        message = "조회 결과에 평균단가가 없습니다."
+        return {
+            **structured_result(
+                ok=False,
+                message=message,
+                plan_status="failed",
+                plan_message=message,
+                attempt_status="not_run",
+                attempt_message="미실시",
+            ),
+            "preview": preview,
+        }
+    try:
+        saved_detail = save_infinite_web_execution(
+            username,
+            profile_name,
+            {
+                "trade_date": trade_date,
+                "avg_price": avg_price,
+                "buy_qty": int(preview_row.get("buy_qty") or 0),
+                "sell_qty": int(preview_row.get("sell_qty") or 0),
+                "cash_flow_amount": 0.0,
+            },
+        )
+    except Exception as exc:
+        message = f"주문표 생성 실패: {exc}"
+        return {
+            **structured_result(
+                ok=False,
+                message=message,
+                plan_status="failed",
+                plan_message=message,
+                attempt_status="not_run",
+                attempt_message="미실시",
+            ),
+            "preview": preview,
+        }
+    order_plan = saved_detail.get("order_plan") or {}
+    buy_count = len(order_plan.get("buy") or [])
+    sell_count = len(order_plan.get("sell") or [])
+    order_result = execute_infinite_web_orders(username, profile_name, send_telegram=False)
+    attempt_result = _order_attempt_result_from_result(order_result)
     return {
         **order_result,
         "source": source,
         "preview": preview,
-        "message": f"자동 체결입력 후 주문실행: {order_result.get('message') or '-'}",
+        "order_plan_result": {
+            "status": "success",
+            "message": "주문표 생성 완료",
+            "buy_count": buy_count,
+            "sell_count": sell_count,
+        },
+        "order_attempt_result": attempt_result,
+        "message": f"자동 체결입력 후 주문실행: {attempt_result.get('message') or order_result.get('message') or '-'}",
+        "order_datetime": order_result.get("order_datetime") or order_datetime,
+        "telegram_order_result": _send_api_order_result_telegram(
+            username,
+            "infinite",
+            profile_name,
+            {
+                **order_result,
+                "source": source,
+                "preview": preview,
+                "order_plan_result": {
+                    "status": "success",
+                    "message": "주문표 생성 완료",
+                    "buy_count": buy_count,
+                    "sell_count": sell_count,
+                },
+                "order_attempt_result": attempt_result,
+                "message": f"자동 체결입력 후 주문실행: {attempt_result.get('message') or order_result.get('message') or '-'}",
+                "order_datetime": order_result.get("order_datetime") or order_datetime,
+            },
+        ),
     }
 
 
@@ -3983,16 +4138,48 @@ def run_due_infinite_schedules(
             _write_infinite_schedule(username, profile_name, running)
             try:
                 if schedule.get("mode") == "orders_only":
-                    result = execute_infinite_web_orders(username, profile_name)
+                    result = execute_infinite_web_orders(
+                        username, profile_name, send_telegram=False
+                    )
                     result["source"] = "schedule"
                     result["schedule_mode"] = "orders_only"
+                    result.setdefault(
+                        "order_plan_result",
+                        {
+                            "status": "skipped",
+                            "message": "주문실행 모드: 주문표 생성은 실시하지 않았습니다.",
+                            "buy_count": 0,
+                            "sell_count": 0,
+                        },
+                    )
+                    result.setdefault(
+                        "order_attempt_result",
+                        _order_attempt_result_from_result(result),
+                    )
                 else:
                     result = execute_infinite_after_input_workflow(
                         username, profile_name, source="schedule"
                     )
                     result["schedule_mode"] = "after_input"
             except Exception as exc:
-                result = {"ok": False, "message": f"자동 실행 실패: {exc}"}
+                result = {
+                    "ok": False,
+                    "message": f"자동 실행 실패: {exc}",
+                    "order_plan_result": {
+                        "status": "failed",
+                        "message": str(exc),
+                        "buy_count": 0,
+                        "sell_count": 0,
+                    },
+                    "order_attempt_result": {
+                        "status": "not_run",
+                        "message": "미실시",
+                    },
+                }
+            if not result.get("telegram_order_result"):
+                result = _with_api_order_result_telegram(
+                    username, "infinite", profile_name, result
+                )
             _mark_infinite_schedule_attempt(username, profile_name, running, now, result)
             results.append({"username": username, "profile": profile_name, **result})
     return results
@@ -4184,6 +4371,35 @@ def _order_status_label(status: str) -> str:
     return labels.get(status, status or "-")
 
 
+def _workflow_result_label(status: str) -> str:
+    labels = {
+        "success": "성공",
+        "failed": "실패",
+        "skipped": "미실시",
+        "not_run": "미실시",
+    }
+    return labels.get(status, status or "-")
+
+
+def _order_plan_result_line(plan_result: dict[str, Any]) -> str:
+    status = str(plan_result.get("status") or "")
+    if status == "success":
+        buy_count = int(plan_result.get("buy_count") or 0)
+        sell_count = int(plan_result.get("sell_count") or 0)
+        return f"- 매수 {buy_count}건, 매도 {sell_count}건"
+    message = str(plan_result.get("message") or "-").strip()
+    return f"- {message}"
+
+
+def _order_attempt_result_from_result(result: dict[str, Any]) -> dict[str, Any]:
+    if "order_attempt_result" in result and isinstance(result.get("order_attempt_result"), dict):
+        return result["order_attempt_result"]
+    return {
+        "status": "success" if result.get("ok") else "failed",
+        "message": str(result.get("message") or "-"),
+    }
+
+
 def _send_api_order_result_telegram(
     username: str,
     strategy: str,
@@ -4206,8 +4422,29 @@ def _send_api_order_result_telegram(
         f"[API 주문결과] {label} {profile_name}",
         f"상태: {result_label}",
         f"주문일시: {result.get('order_datetime') or result.get('order_date') or '-'}",
-        f"메시지: {result.get('message') or '-'}",
     ]
+    plan_result = result.get("order_plan_result")
+    if isinstance(plan_result, dict):
+        attempt_result = _order_attempt_result_from_result(result)
+        lines.extend(
+            [
+                "",
+                f"1. 주문표 생성 결과: {_workflow_result_label(str(plan_result.get('status') or ''))}",
+                _order_plan_result_line(plan_result),
+                "",
+                f"2. 주문시도결과: {_workflow_result_label(str(attempt_result.get('status') or ''))}",
+                f"- {str(attempt_result.get('message') or '-').strip()}",
+            ]
+        )
+    else:
+        attempt_result = _order_attempt_result_from_result(result)
+        lines.extend(
+            [
+                "",
+                f"주문시도결과: {_workflow_result_label(str(attempt_result.get('status') or ''))}",
+                f"- {str(attempt_result.get('message') or '-').strip()}",
+            ]
+        )
     if status_counts:
         summary = " / ".join(
             f"{_order_status_label(status)} {count}건"
@@ -4248,6 +4485,18 @@ def _with_api_order_result_telegram(
         username, strategy, profile_name, result
     )
     return result
+
+
+def _maybe_with_api_order_result_telegram(
+    username: str,
+    strategy: str,
+    profile_name: str,
+    result: dict[str, Any],
+    send_telegram: bool,
+) -> dict[str, Any]:
+    if not send_telegram:
+        return result
+    return _with_api_order_result_telegram(username, strategy, profile_name, result)
 
 
 def _order_row_limit(settings: TelegramSettings) -> int:
