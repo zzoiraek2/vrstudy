@@ -148,7 +148,7 @@ function arrangeDashboardLayout() {
 
 function text(id, value) {
   const node = document.getElementById(id);
-  if (node) node.textContent = value ?? "";
+  if (node) node.textContent = displayText(value);
 }
 
 function number(value, digits = 2) {
@@ -164,8 +164,22 @@ function pct(value) {
 }
 
 function dateTimeText(value, fallback = "-") {
-  if (value === null || value === undefined || value === "") return fallback;
-  return String(value).replace("T", " ").replace(/\.\d+$/, "").slice(0, 19);
+  if (value === null || value === undefined || value === "") return displayText(fallback);
+  const text = normalizeDateTimeText(value);
+  return text.length > 19 ? text.slice(0, 19) : text;
+}
+
+function normalizeDateTimeText(value) {
+  return String(value).trim().replace(
+    /\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g,
+    "$1 $2",
+  );
+}
+
+function displayText(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (value === 0) return "0";
+  return typeof value === "string" ? normalizeDateTimeText(value) : value;
 }
 
 function won(value) {
@@ -187,7 +201,7 @@ function renderEmpty(tbody, colspan) {
 function appendCells(row, values) {
   values.forEach((value) => {
     const cell = document.createElement("td");
-    cell.textContent = value === 0 ? "0" : value || "-";
+    cell.textContent = displayText(value);
     row.appendChild(cell);
   });
 }
@@ -325,7 +339,7 @@ function renderFields(containerId, data, fields) {
     const caption = document.createElement("span");
     caption.textContent = label;
     const value = document.createElement("strong");
-    value.textContent = formatter ? formatter(data?.[key]) : data?.[key] ?? "-";
+    value.textContent = displayText(formatter ? formatter(data?.[key]) : data?.[key]);
     item.append(caption, value);
     container.appendChild(item);
   });
@@ -1308,11 +1322,11 @@ function mobileMetricCard(label, value, meta = "") {
   const labelNode = document.createElement("span");
   labelNode.textContent = label;
   const valueNode = document.createElement("strong");
-  valueNode.textContent = value;
+  valueNode.textContent = displayText(value);
   card.append(labelNode, valueNode);
   if (meta) {
     const metaNode = document.createElement("small");
-    metaNode.textContent = meta;
+    metaNode.textContent = displayText(meta);
     card.appendChild(metaNode);
   }
   return card;
@@ -1338,7 +1352,7 @@ function mobileProfileCard(title, rows, status = "") {
     const labelNode = document.createElement("span");
     labelNode.textContent = label;
     const valueNode = document.createElement("strong");
-    valueNode.textContent = value;
+    valueNode.textContent = displayText(value);
     row.append(labelNode, valueNode);
     card.appendChild(row);
   });
@@ -1366,7 +1380,7 @@ function mobileStatusBanner(containerId, title, message, tone = "neutral") {
   const titleNode = document.createElement("strong");
   titleNode.textContent = title;
   const messageNode = document.createElement("span");
-  messageNode.textContent = message;
+  messageNode.textContent = displayText(message);
   banner.append(titleNode, messageNode);
   container.appendChild(banner);
 }

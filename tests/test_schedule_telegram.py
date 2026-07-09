@@ -24,7 +24,7 @@ class ScheduleTelegramTest(unittest.TestCase):
         try:
             result = {
                 "ok": False,
-                "order_datetime": "2026-07-09 15:55:02",
+                "order_datetime": "2026-07-09T15:55:02+09:00",
                 "order_plan_result": {
                     "status": "success",
                     "buy_count": 10,
@@ -43,6 +43,8 @@ class ScheduleTelegramTest(unittest.TestCase):
             data.send_telegram_message = old_send
 
         self.assertTrue(captured)
+        self.assertIn("2026-07-09 15:55:02", captured[0])
+        self.assertNotIn("2026-07-09T15:55:02+09:00", captured[0])
         self.assertIn("1. 주문표 생성 결과: 성공", captured[0])
         self.assertIn("- 매수 10건, 매도 2건", captured[0])
         self.assertIn("2. 주문시도결과: 실패", captured[0])

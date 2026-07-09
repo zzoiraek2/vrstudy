@@ -102,6 +102,30 @@ def _json_value(value: Any) -> Any:
     return value
 
 
+def _display_datetime_text(value: Any, fallback: str = "-") -> str:
+    if value is None or value == "":
+        return fallback
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value).strip()
+    if not text:
+        return fallback
+    if len(text) == 10:
+        try:
+            date.fromisoformat(text)
+        except ValueError:
+            pass
+        else:
+            return text
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text.replace("T", " ").split("+", 1)[0].split("Z", 1)[0][:19]
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _connect_readonly(db_path: Path) -> duckdb.DuckDBPyConnection | None:
     if not db_path.exists():
         return None
@@ -4406,6 +4430,10 @@ def _send_api_order_result_telegram(
     profile_name: str,
     result: dict[str, Any],
 ) -> dict[str, Any]:
+    result = dict(result)
+    result["order_datetime"] = _display_datetime_text(
+        result.get("order_datetime") or result.get("order_date")
+    )
     settings = load_telegram_settings(telegram_settings_path(username))
     if not settings.send_api_order_result:
         return {"sent": False, "message": "API 주문결과 텔레그램 발송 꺼짐"}
