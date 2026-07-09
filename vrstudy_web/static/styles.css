@@ -75,6 +75,30 @@ button:disabled {
   box-shadow: 0 12px 28px rgba(32, 37, 31, 0.08);
 }
 
+.login-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.login-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+}
+
+.login-options input {
+  width: 16px;
+  height: 16px;
+}
+
+.login-options span {
+  color: var(--text);
+  font-size: 13px;
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--muted);
@@ -172,6 +196,7 @@ input[readonly]:focus,
 .session-box {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -181,7 +206,9 @@ input[readonly]:focus,
 }
 
 .session-box button {
-  width: 90px;
+  min-width: 90px;
+  width: auto;
+  padding: 0 12px;
 }
 
 .metrics {
@@ -1264,7 +1291,8 @@ tbody tr.selected-data-row {
   min-width: 88px;
 }
 
-#profile-create-message {
+#profile-create-message,
+#password-change-message {
   min-height: 18px;
   margin: -4px 14px 12px;
 }

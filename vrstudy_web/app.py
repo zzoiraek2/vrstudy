@@ -9,7 +9,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .accounts import authenticate, ensure_user_dirs, load_users, session_secret_path
+from .accounts import (
+    authenticate,
+    authenticate_remember_token,
+    change_password,
+    ensure_user_dirs,
+    issue_remember_token,
+    load_users,
+    revoke_remember_token,
+    session_secret_path,
+)
 from .data import (
     create_infinite_web_profile,
     create_vr_web_profile,
@@ -58,6 +67,9 @@ from .security import ensure_session_secret, sign_session, verify_session
 
 
 COOKIE_NAME = "vrstudy_session"
+REMEMBER_COOKIE_NAME = "vrstudy_remember"
+SESSION_MAX_AGE = 60 * 60 * 12
+REMEMBER_MAX_AGE = 60 * 60 * 24 * 60
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
 VENDOR_DIR = WEB_DIR / "vendor"
@@ -66,6 +78,12 @@ VENDOR_DIR = WEB_DIR / "vendor"
 class LoginRequest(BaseModel):
     username: str
     password: str
+    remember: bool = False
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = ""
+    new_password: str = ""
 
 
 class KiwoomCredentialsRequest(BaseModel):
@@ -219,8 +237,40 @@ async def stop_infinite_scheduler() -> None:
         _SCHEDULER_TASK = None
 
 
+def set_session_cookie(response: Response, username: str) -> None:
+    response.set_cookie(
+        COOKIE_NAME,
+        sign_session(SESSION_SECRET, username),
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=SESSION_MAX_AGE,
+    )
+
+
+@app.middleware("http")
+async def restore_remembered_session(request: Request, call_next):
+    session_username = verify_session(SESSION_SECRET, request.cookies.get(COOKIE_NAME))
+    remembered_username = None
+    if session_username:
+        request.state.username = session_username
+    else:
+        remembered = authenticate_remember_token(
+            request.cookies.get(REMEMBER_COOKIE_NAME)
+        )
+        if remembered is not None:
+            remembered_username = remembered.username
+            request.state.username = remembered.username
+    response = await call_next(request)
+    if remembered_username and request.url.path != "/api/logout":
+        set_session_cookie(response, remembered_username)
+    return response
+
+
 def current_username(request: Request) -> str:
-    username = verify_session(SESSION_SECRET, request.cookies.get(COOKIE_NAME))
+    username = getattr(request.state, "username", None) or verify_session(
+        SESSION_SECRET, request.cookies.get(COOKIE_NAME)
+    )
     if username is None:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
     return username
@@ -241,20 +291,54 @@ def login(payload: LoginRequest, response: Response) -> dict[str, str]:
     user = authenticate(payload.username, payload.password)
     if user is None:
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 맞지 않습니다.")
-    response.set_cookie(
-        COOKIE_NAME,
-        sign_session(SESSION_SECRET, user.username),
-        httponly=True,
-        secure=False,
-        samesite="lax",
-        max_age=60 * 60 * 12,
-    )
+    set_session_cookie(response, user.username)
+    if payload.remember:
+        remember_token = issue_remember_token(user.username)
+        if remember_token:
+            response.set_cookie(
+                REMEMBER_COOKIE_NAME,
+                remember_token,
+                httponly=True,
+                secure=False,
+                samesite="lax",
+                max_age=REMEMBER_MAX_AGE,
+            )
+    else:
+        revoke_remember_token(user.username)
+        response.delete_cookie(REMEMBER_COOKIE_NAME)
     return {"username": user.username}
 
 
 @app.post("/api/logout")
-def logout(response: Response) -> dict[str, bool]:
+def logout(request: Request, response: Response) -> dict[str, bool]:
+    username = verify_session(SESSION_SECRET, request.cookies.get(COOKIE_NAME))
+    remembered = authenticate_remember_token(request.cookies.get(REMEMBER_COOKIE_NAME))
+    if username:
+        revoke_remember_token(username)
+    elif remembered:
+        revoke_remember_token(remembered.username)
     response.delete_cookie(COOKIE_NAME)
+    response.delete_cookie(REMEMBER_COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.post("/api/account/password")
+def api_account_password(
+    payload: PasswordChangeRequest,
+    response: Response,
+    username: str = Depends(current_username),
+) -> dict[str, bool]:
+    current_password = payload.current_password
+    new_password = payload.new_password
+    if not current_password:
+        raise HTTPException(status_code=400, detail="현재 비밀번호를 입력해 주세요.")
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="새 비밀번호는 8자 이상이어야 합니다.")
+    if new_password == current_password:
+        raise HTTPException(status_code=400, detail="새 비밀번호가 현재 비밀번호와 같습니다.")
+    if not change_password(username, current_password, new_password):
+        raise HTTPException(status_code=400, detail="현재 비밀번호가 맞지 않습니다.")
+    response.delete_cookie(REMEMBER_COOKIE_NAME)
     return {"ok": True}
 
 

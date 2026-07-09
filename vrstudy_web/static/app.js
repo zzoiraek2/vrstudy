@@ -30,6 +30,15 @@ const appView = document.getElementById("app-view");
 const loginForm = document.getElementById("login-form");
 const loginMessage = document.getElementById("login-message");
 const logoutButton = document.getElementById("logout-button");
+const changePasswordButton = document.getElementById("change-password-button");
+const rememberUsernameCheckbox = document.getElementById("remember-username");
+const rememberLoginCheckbox = document.getElementById("remember-login");
+const passwordChangeModal = document.getElementById("password-change-modal");
+const passwordChangeForm = document.getElementById("password-change-form");
+const passwordChangeMessage = document.getElementById("password-change-message");
+const passwordChangeSubmit = document.getElementById("password-change-submit");
+const savedUsernameKey = "vrstudy.savedUsername";
+const savedRememberLoginKey = "vrstudy.rememberLogin";
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -71,6 +80,60 @@ function formatApiError(detail) {
 function setVisible(view) {
   loginView.hidden = view !== "login";
   appView.hidden = view !== "app";
+}
+
+function initLoginPreferences() {
+  const usernameInput = document.getElementById("username");
+  const savedUsername = localStorage.getItem(savedUsernameKey) || "";
+  const rememberLogin = localStorage.getItem(savedRememberLoginKey) === "1";
+  if (usernameInput && savedUsername) usernameInput.value = savedUsername;
+  if (rememberUsernameCheckbox) rememberUsernameCheckbox.checked = Boolean(savedUsername);
+  if (rememberLoginCheckbox) rememberLoginCheckbox.checked = rememberLogin;
+}
+
+function saveLoginPreferences(username, rememberUsername, rememberLogin) {
+  if (rememberUsername || rememberLogin) {
+    localStorage.setItem(savedUsernameKey, username);
+  } else {
+    localStorage.removeItem(savedUsernameKey);
+  }
+  if (rememberLogin) {
+    localStorage.setItem(savedRememberLoginKey, "1");
+  } else {
+    localStorage.removeItem(savedRememberLoginKey);
+  }
+}
+
+function clearRememberLoginPreference() {
+  localStorage.removeItem(savedRememberLoginKey);
+  if (rememberLoginCheckbox) rememberLoginCheckbox.checked = false;
+}
+
+function openPasswordChangeModal() {
+  if (!passwordChangeModal || !passwordChangeForm) return;
+  passwordChangeForm.reset();
+  if (passwordChangeMessage) passwordChangeMessage.textContent = "";
+  passwordChangeModal.hidden = false;
+  document.getElementById("current-password")?.focus();
+}
+
+function closePasswordChangeModal() {
+  if (!passwordChangeModal || !passwordChangeForm) return;
+  passwordChangeForm.reset();
+  if (passwordChangeMessage) passwordChangeMessage.textContent = "";
+  passwordChangeModal.hidden = true;
+}
+
+function validatePasswordChange(formData) {
+  const currentPassword = String(formData.get("current_password") || "");
+  const newPassword = String(formData.get("new_password") || "");
+  const confirmPassword = String(formData.get("new_password_confirm") || "");
+  if (!currentPassword) return "현재 비밀번호를 입력해 주세요.";
+  if (!newPassword) return "새 비밀번호를 입력해 주세요.";
+  if (newPassword.length < 8) return "새 비밀번호는 8자 이상이어야 합니다.";
+  if (newPassword === currentPassword) return "새 비밀번호가 현재 비밀번호와 같습니다.";
+  if (newPassword !== confirmPassword) return "새 비밀번호 확인이 일치하지 않습니다.";
+  return "";
 }
 
 function arrangeDashboardLayout() {
@@ -2626,15 +2689,21 @@ loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   loginMessage.textContent = "";
   const formData = new FormData(loginForm);
+  const username = String(formData.get("username") || "");
+  const rememberUsername = Boolean(formData.get("remember_username"));
+  const rememberLogin = Boolean(formData.get("remember_login"));
   try {
     await api("/api/login", {
       method: "POST",
       body: JSON.stringify({
-        username: String(formData.get("username") || ""),
+        username,
         password: String(formData.get("password") || ""),
+        remember: rememberLogin,
       }),
     });
+    saveLoginPreferences(username, rememberUsername, rememberLogin);
     loginForm.reset();
+    initLoginPreferences();
     await loadDashboard();
   } catch (error) {
     loginMessage.textContent = error.message;
@@ -2643,7 +2712,59 @@ loginForm.addEventListener("submit", async (event) => {
 
 logoutButton.addEventListener("click", async () => {
   await api("/api/logout", { method: "POST", body: "{}" });
+  clearRememberLoginPreference();
+  initLoginPreferences();
   setVisible("login");
+});
+
+changePasswordButton?.addEventListener("click", openPasswordChangeModal);
+
+passwordChangeForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!passwordChangeMessage || !passwordChangeForm) return;
+  passwordChangeMessage.textContent = "";
+  const formData = new FormData(passwordChangeForm);
+  const validationMessage = validatePasswordChange(formData);
+  if (validationMessage) {
+    passwordChangeMessage.textContent = validationMessage;
+    return;
+  }
+  try {
+    if (passwordChangeSubmit) passwordChangeSubmit.disabled = true;
+    await api("/api/account/password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: String(formData.get("current_password") || ""),
+        new_password: String(formData.get("new_password") || ""),
+      }),
+    });
+    clearRememberLoginPreference();
+    passwordChangeForm.reset();
+    passwordChangeMessage.textContent = "비밀번호가 변경되었습니다.";
+    setTimeout(closePasswordChangeModal, 700);
+  } catch (error) {
+    passwordChangeMessage.textContent = error.message;
+  } finally {
+    if (passwordChangeSubmit) passwordChangeSubmit.disabled = false;
+  }
+});
+
+document.getElementById("password-change-cancel")?.addEventListener("click", closePasswordChangeModal);
+document.getElementById("password-change-close")?.addEventListener("click", closePasswordChangeModal);
+passwordChangeModal?.addEventListener("click", (event) => {
+  if (event.target.id === "password-change-modal") closePasswordChangeModal();
+});
+
+rememberLoginCheckbox?.addEventListener("change", () => {
+  if (rememberLoginCheckbox.checked && rememberUsernameCheckbox) {
+    rememberUsernameCheckbox.checked = true;
+  }
+});
+
+rememberUsernameCheckbox?.addEventListener("change", () => {
+  if (!rememberUsernameCheckbox.checked && rememberLoginCheckbox) {
+    rememberLoginCheckbox.checked = false;
+  }
 });
 
 document.getElementById("vr-profile-select").addEventListener("change", async (event) => {
@@ -2745,6 +2866,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && !document.getElementById("profile-create-modal").hidden) {
     closeProfileCreateModal();
+    return;
+  }
+  if (event.key === "Escape" && passwordChangeModal && !passwordChangeModal.hidden) {
+    closePasswordChangeModal();
   }
 });
 
@@ -2752,4 +2877,5 @@ window.addEventListener("resize", () => {
   Object.values(state.dashboardCharts.instances).forEach((chart) => chart.resize());
 });
 
+initLoginPreferences();
 loadDashboard().catch(() => setVisible("login"));

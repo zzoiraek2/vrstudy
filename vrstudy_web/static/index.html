@@ -28,6 +28,16 @@
               required
             />
           </label>
+          <div class="login-options">
+            <label>
+              <input id="remember-username" name="remember_username" type="checkbox" />
+              <span>ID 저장</span>
+            </label>
+            <label>
+              <input id="remember-login" name="remember_login" type="checkbox" />
+              <span>자동 로그인</span>
+            </label>
+          </div>
           <button type="submit">로그인</button>
           <p id="login-message" class="message" aria-live="polite"></p>
         </form>
@@ -42,6 +52,7 @@
           <div class="session-box">
             <span id="today-label"></span>
             <span id="session-user"></span>
+            <button id="change-password-button" type="button">비밀번호 변경</button>
             <button id="logout-button" type="button">로그아웃</button>
           </div>
         </header>
@@ -920,6 +931,33 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260709_schedule_retry_telegram"></script>
+    <div id="password-change-modal" class="modal-overlay" hidden>
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="password-change-title">
+        <form id="password-change-form">
+          <div class="modal-header">
+            <h2 id="password-change-title">비밀번호 변경</h2>
+            <button id="password-change-close" type="button" aria-label="닫기">x</button>
+          </div>
+          <label class="modal-field">
+            <span>현재 비밀번호</span>
+            <input id="current-password" name="current_password" type="password" autocomplete="current-password" />
+          </label>
+          <label class="modal-field">
+            <span>새 비밀번호</span>
+            <input id="new-password" name="new_password" type="password" autocomplete="new-password" />
+          </label>
+          <label class="modal-field">
+            <span>새 비밀번호 확인</span>
+            <input id="new-password-confirm" name="new_password_confirm" type="password" autocomplete="new-password" />
+          </label>
+          <p id="password-change-message" class="message muted-message"></p>
+          <div class="modal-actions">
+            <button id="password-change-submit" type="submit">변경</button>
+            <button id="password-change-cancel" type="button">취소</button>
+          </div>
+        </form>
+      </section>
+    </div>
+    <script src="/assets/app.js?v=20260709_account_security"></script>
   </body>
 </html>

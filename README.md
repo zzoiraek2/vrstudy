@@ -130,7 +130,7 @@ Remove-Item Env:\VRSTUDY_INITIAL_PASSWORD
 
 Web account data is stored in:
 
-- `data\web\users.json`: username records with password hashes only.
+- `data\web\users.json`: username records with password hashes and optional remember-login token hashes.
 - `data\users\<username>\vrstudy.duckdb`: the account-specific database.
 - `data\users\<username>\profiles\`: the account-specific profile files.
 
