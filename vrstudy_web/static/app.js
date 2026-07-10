@@ -163,6 +163,14 @@ function pct(value) {
   return `${number(Number(value) * 100, 2)}%`;
 }
 
+function buyLimitText(row) {
+  const ratio = Number(row?.buy_limit_ratio);
+  if (!Number.isFinite(ratio)) return "-";
+  const pool = Number(row?.pool);
+  if (!Number.isFinite(pool)) return pct(ratio);
+  return `${pct(ratio)} / ${number(pool * ratio)}`;
+}
+
 function dateTimeText(value, fallback = "-") {
   if (value === null || value === undefined || value === "") return displayText(fallback);
   const text = normalizeDateTimeText(value);
@@ -244,6 +252,9 @@ function activateMainTab(tabId) {
   if (tabId === "dashboard-tab") {
     refreshDashboardCharts();
   }
+  if (tabId === "vr-tab") {
+    scheduleVrOrderPanelHeightSync();
+  }
 }
 
 function activateInnerPanel(panelId) {
@@ -296,16 +307,51 @@ function renderVrOrderLevels(orderLevels) {
   const quantity = (row) => row.quantity ?? row.quantity_step;
   const buyRows = (orderLevels || []).filter(isBuy);
   const sellRows = (orderLevels || []).filter(isSell);
-  rows("vr-buy-order-levels", buyRows, 3, (row) => [
+  rows("vr-buy-order-levels", buyRows, 5, (row) => [
     row.level_no,
+    number(row.after_shares, 0),
     number(row.price),
     number(quantity(row), 0),
+    number(row.pool_after),
   ]);
-  rows("vr-sell-order-levels", sellRows, 3, (row) => [
+  rows("vr-sell-order-levels", sellRows, 5, (row) => [
     row.level_no,
+    number(row.after_shares, 0),
     number(row.price),
     number(quantity(row), 0),
+    number(row.pool_after),
   ]);
+  scheduleVrOrderPanelHeightSync();
+}
+
+function syncVrOrderPanelHeight() {
+  const vrTab = document.getElementById("vr-tab");
+  if (!vrTab || !vrTab.classList.contains("active")) return;
+  const calculationPanel = vrTab.querySelector(".calculation-panel");
+  const orderPanel = vrTab.querySelector(".order-split-panel");
+  const leftPane = vrTab.querySelector(".left-pane");
+  const activeLeftPanel = vrTab.querySelector(".left-pane .inner-panel.active");
+  if (!calculationPanel || !orderPanel) return;
+  orderPanel.style.removeProperty("--vr-order-panel-height");
+  if (leftPane) leftPane.style.removeProperty("--vr-left-panel-height");
+  const height = Math.ceil(calculationPanel.getBoundingClientRect().height);
+  if (height > 0) {
+    orderPanel.style.setProperty("--vr-order-panel-height", `${height}px`);
+    if (leftPane && activeLeftPanel) {
+      const leftHeight = Math.ceil(
+        orderPanel.getBoundingClientRect().bottom - activeLeftPanel.getBoundingClientRect().top,
+      );
+      if (leftHeight > 0) {
+        leftPane.style.setProperty("--vr-left-panel-height", `${leftHeight}px`);
+      }
+    }
+  }
+}
+
+function scheduleVrOrderPanelHeightSync() {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(syncVrOrderPanelHeight);
+  });
 }
 
 function renderVrFillHistory(fills) {
@@ -370,6 +416,13 @@ function renderVrOrderOptions(profile) {
   if (button) button.disabled = false;
 }
 
+function vrCycleWeekNo(cycleNo) {
+  const parsedCycleNo = Number(cycleNo);
+  if (!Number.isFinite(parsedCycleNo) || parsedCycleNo <= 0) return 0;
+  const startWeekNo = Number(state.vrDetail?.profile?.start_week_no || 2);
+  return startWeekNo + (parsedCycleNo - 1) * 2;
+}
+
 function renderVrOrderBasisSummary(detail) {
   const basis = detail?.order_basis || {};
   const sourceCycleNo = Number(basis.source_cycle_no);
@@ -388,11 +441,13 @@ function renderVrOrderBasisSummary(detail) {
     ["이전 주차 처음 Pool", "source", () => number(source.prior_pool)],
     ["이전 주차 마지막 Pool", "source", () => number(source.pool)],
     ["금번 주차 G", "basis", () => number(basis.g)],
+    ["금번 매수한도", "basis", () => buyLimitText(basis)],
     ["금번 주차 V", "basis", () => number(basis.v)],
     ["금번 최소밴드값", "basis", () => number(basis.min_value)],
     ["금번 최대밴드값", "basis", () => number(basis.max_value)],
     ["금번 처음 Pool", "basis", () => number(basis.prior_pool)],
   ]);
+  scheduleVrOrderPanelHeightSync();
 }
 
 function settingValue(data, key, formatter) {
@@ -418,6 +473,19 @@ function parseInputValue(value, kind) {
     return Number(numericText || "0");
   }
   return text;
+}
+
+function splitCycleConfig(value) {
+  const parts = String(value || "").split(",").map((part) => part.trim());
+  return {
+    base: parts[0] || "",
+    period: parts[1] || "",
+    step: parts[2] || "",
+  };
+}
+
+function joinCycleConfig(base, period, step) {
+  return [base, period, step].map((value) => String(value || "").trim()).join(",");
 }
 
 function renderSettingsForm(containerId, data, fields, onSubmit) {
@@ -553,6 +621,31 @@ function renderVrCycleInputForm(data, onSubmit) {
   const form = document.createElement("form");
   form.className = "settings-form one-col embedded-settings-form";
   fields.forEach((field) => {
+    if (field.name === "g_config" || field.name === "buy_limit_config") {
+      const group = document.createElement("fieldset");
+      group.className = "triple-input-row";
+      const legend = document.createElement("legend");
+      legend.textContent = field.label;
+      group.appendChild(legend);
+      const config = splitCycleConfig(data?.[field.name]);
+      [
+        ["base", field.name === "g_config" ? "G값" : "매수한도"],
+        ["period", "주기(주)"],
+        ["step", "증분"],
+      ].forEach(([part, labelText]) => {
+        const label = document.createElement("label");
+        const caption = document.createElement("span");
+        const input = document.createElement("input");
+        caption.textContent = labelText;
+        input.name = `${field.name}_${part}`;
+        input.type = "text";
+        input.value = config[part] ?? "";
+        label.append(caption, input);
+        group.appendChild(label);
+      });
+      form.appendChild(group);
+      return;
+    }
     const label = document.createElement("label");
     const caption = document.createElement("span");
     const input = document.createElement("input");
@@ -570,10 +663,9 @@ function renderVrCycleInputForm(data, onSubmit) {
   });
   const updateComputedWeekNo = () => {
     const cycleNo = Number.parseInt(String(form.elements.cycle_no?.value || "0").replace(/,/g, ""), 10);
-    const startWeekNo = Number(state.vrDetail?.profile?.start_week_no || 2);
     const weekInput = form.elements.week_no;
     if (!weekInput || !Number.isFinite(cycleNo)) return;
-    weekInput.value = String(startWeekNo + (cycleNo - 1) * 2);
+    weekInput.value = String(vrCycleWeekNo(cycleNo));
   };
   form.elements.cycle_no?.addEventListener("input", updateComputedWeekNo);
   const actions = document.createElement("div");
@@ -601,6 +693,14 @@ function renderVrCycleInputForm(data, onSubmit) {
     const payload = {};
     fields.forEach((field) => {
       if (field.readonly) return;
+      if (field.name === "g_config" || field.name === "buy_limit_config") {
+        payload[field.name] = joinCycleConfig(
+          form.elements[`${field.name}_base`]?.value,
+          form.elements[`${field.name}_period`]?.value,
+          form.elements[`${field.name}_step`]?.value,
+        );
+        return;
+      }
       payload[field.name] = parseInputValue(form.elements[field.name].value, field.kind);
     });
     try {
@@ -1960,6 +2060,9 @@ function activateOrderPanel(kind, panelName) {
   host.querySelectorAll(".order-panel-page").forEach((panel) => {
     panel.classList.toggle("active", panel.id === panelName);
   });
+  if (kind === "vr") {
+    scheduleVrOrderPanelHeightSync();
+  }
 }
 
 function orderResultRows(result) {
@@ -1987,6 +2090,14 @@ function statusLabel(status) {
   if (status === "not_found") return "실패(조회없음)";
   if (status === "failed") return "실패";
   return status || "-";
+}
+
+function vrSnapshotStatusLabel(status) {
+  const value = String(status || "").trim();
+  if (!value) return "-";
+  if (value === "done" || value === "완료") return "완료";
+  if (value === "pending" || value === "주문생성") return "주문생성";
+  return value;
 }
 
 function orderResultStatus(row) {
@@ -2359,7 +2470,7 @@ function vrCycleRecalculateData(row) {
   const defaults = state.vrDetail?.cycle_input || {};
   return {
     cycle_no: row.cycle_no,
-    week_no: row.week_no,
+    week_no: vrCycleWeekNo(row.cycle_no),
     result_period: `${row.start_date || ""} ~ ${row.end_date || ""}`,
     next_period: nextSnapshot ? `${nextSnapshot.start_date || ""} ~ ${nextSnapshot.end_date || ""}` : defaults.next_period,
     close_price: row.close_price,
@@ -2435,16 +2546,18 @@ async function loadVrDetail(profileName) {
   renderVrOrderBasisSummary(detail);
   const snapshots = visibleVrSnapshots(detail);
   text("vr-snapshot-count", `${snapshots.length}개`);
-  rows("vr-snapshots", snapshots, 12, (row) => [
+  rows("vr-snapshots", snapshots, 14, (row) => [
     row.cycle_no,
     row.week_no,
     row.start_date,
     row.end_date,
-    row.status,
+    vrSnapshotStatusLabel(row.status),
     number(row.close_price),
+    number(row.g),
     number(row.v),
     number(row.trade_amount),
     number(row.pool),
+    buyLimitText(row),
     number(row.account_total),
     number(row.shares, 0),
     pct(row.return_rate),
@@ -2698,6 +2811,8 @@ document.querySelectorAll(".order-panel-tabs").forEach((group) => {
     });
   });
 });
+
+window.addEventListener("resize", scheduleVrOrderPanelHeightSync);
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();

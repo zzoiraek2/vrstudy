@@ -1008,6 +1008,65 @@ input[readonly]:focus,
   flex: 1;
 }
 
+#vr-tab .strategy-layout {
+  height: auto;
+  min-height: calc(100vh - 185px);
+  overflow: visible;
+}
+
+#vr-tab .right-pane,
+#vr-tab .right-grid {
+  height: auto;
+  overflow: visible;
+}
+
+#vr-tab .right-grid {
+  align-items: start;
+}
+
+#vr-tab .calculation-panel {
+  overflow: visible;
+}
+
+#vr-tab .calculation-panel .readonly-form.single {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+#vr-tab .order-split-panel {
+  height: var(--vr-order-panel-height, auto);
+  max-height: var(--vr-order-panel-height, none);
+  overflow: hidden;
+}
+
+#vr-tab .order-split-panel .order-panel-page {
+  overflow: hidden;
+}
+
+#vr-tab .order-split-panel .split-order-tables {
+  min-height: 360px;
+  overflow: hidden;
+}
+
+#vr-tab .order-split-panel .split-table-box {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#vr-tab .left-pane {
+  align-content: start;
+}
+
+#vr-tab .left-pane .inner-panel.active {
+  max-height: var(--vr-left-panel-height, calc(100vh - 245px));
+  overflow: auto;
+}
+
+#vr-tab .left-pane .inner-panel.active > .panel {
+  min-height: var(--vr-left-panel-height, auto);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1104,6 +1163,35 @@ tbody tr.selected-data-row {
 
 .embedded-settings-form {
   padding: 0;
+}
+
+.triple-input-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.triple-input-row legend {
+  grid-column: 1 / -1;
+  margin: 0 0 -2px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.triple-input-row label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.triple-input-row span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .padded-actions {
