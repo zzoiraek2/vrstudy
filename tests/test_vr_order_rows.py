@@ -1,6 +1,10 @@
 import unittest
 
-from vrstudy_web.data import _filter_vr_sell_order_rows, _vr_match_buy_order_count
+from vrstudy_web.data import (
+    _build_vr_period_preview,
+    _filter_vr_sell_order_rows,
+    _vr_match_buy_order_count,
+)
 
 
 def _row(side: str, level_no: int) -> dict:
@@ -9,6 +13,15 @@ def _row(side: str, level_no: int) -> dict:
         "level_no": level_no,
         "quantity": 4,
         "price": float(level_no),
+    }
+
+
+def _api_order(symbol: str, side: str, qty: int, price: float = 10.0) -> dict:
+    return {
+        "stk_cd": symbol,
+        "slby_tp": "2" if side == "buy" else "1",
+        "cntr_qty": f"{qty:012d}",
+        "cntr_uv": f"{price:.4f}",
     }
 
 
@@ -36,6 +49,20 @@ class VrOrderRowsTest(unittest.TestCase):
         rows.extend(_row("SELL", index) for index in range(1, 20))
 
         self.assertEqual(_vr_match_buy_order_count(rows), 8)
+
+    def test_vr_period_preview_projects_from_latest_result_holding(self):
+        preview = _build_vr_period_preview(
+            "TQQQ",
+            {"result_list": []},
+            {"result_list": [{"stk_cd": "TQQQ", "poss_qty": "000000000065"}]},
+            {"result_list": [_api_order("TQQQ", "buy", 2)]},
+            65,
+        )
+
+        self.assertEqual(preview["base_holding_qty"], 65)
+        self.assertEqual(preview["buy_qty"], 2)
+        self.assertEqual(preview["sell_qty"], 0)
+        self.assertEqual(preview["period_end_holding_qty"], 67)
 
 
 if __name__ == "__main__":

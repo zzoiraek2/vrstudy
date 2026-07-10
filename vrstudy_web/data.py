@@ -3145,24 +3145,34 @@ def lookup_vr_fill_history(
 
 
 def _build_vr_period_preview(
-    symbol: str, orders: dict, balance: dict, after_orders: dict
+    symbol: str,
+    orders: dict,
+    balance: dict,
+    current_orders: dict,
+    base_holding_qty: int | None = None,
 ) -> dict[str, Any]:
     order_summary = _summarize_order_period(_result_rows(orders), symbol)
-    after_order_summary = _summarize_order_period(_result_rows(after_orders), symbol)
+    current_order_summary = _summarize_order_period(_result_rows(current_orders), symbol)
     balance_row = _find_symbol_row(_result_rows(balance), symbol)
     holding_qty = _clean_int(
         _first_row_value(balance_row, "poss_qty", "qty", "evlt_qty")
     )
+    base_qty = int(base_holding_qty) if base_holding_qty is not None else holding_qty
     period_end_holding_qty = (
-        holding_qty
-        - int(after_order_summary["buy_qty"])
-        + int(after_order_summary["sell_qty"])
+        base_qty
+        + int(current_order_summary["buy_qty"])
+        - int(current_order_summary["sell_qty"])
     )
     return {
-        "sell_qty": order_summary["sell_qty"],
-        "sell_amount": _clean_number_text(round(float(order_summary["sell_amount"]), 4)),
-        "buy_qty": order_summary["buy_qty"],
-        "buy_amount": _clean_number_text(round(float(order_summary["buy_amount"]), 4)),
+        "result_sell_qty": order_summary["sell_qty"],
+        "result_sell_amount": _clean_number_text(round(float(order_summary["sell_amount"]), 4)),
+        "result_buy_qty": order_summary["buy_qty"],
+        "result_buy_amount": _clean_number_text(round(float(order_summary["buy_amount"]), 4)),
+        "sell_qty": current_order_summary["sell_qty"],
+        "sell_amount": _clean_number_text(round(float(current_order_summary["sell_amount"]), 4)),
+        "buy_qty": current_order_summary["buy_qty"],
+        "buy_amount": _clean_number_text(round(float(current_order_summary["buy_amount"]), 4)),
+        "base_holding_qty": base_qty,
         "holding_qty": holding_qty,
         "period_end_holding_qty": period_end_holding_qty,
     }
@@ -3191,18 +3201,39 @@ def lookup_vr_period_preview(username: str, profile_name: str) -> dict[str, Any]
         balance = request_us_ledger_balance(
             credentials, token, stex_tp=stex_tp, stk_cd=symbol
         )
-        after_start_day = dates.result_end + timedelta(days=1)
-        after_orders = request_us_period_order_history(
+        current_cycle_no, current_dates = _vr_fill_lookup_period(profile, query_day, "current")
+        current_start_day = current_dates.result_start
+        current_end_day = min(query_day, current_dates.result_end)
+        current_orders = request_us_period_order_history(
             credentials,
             token,
-            start_date=after_start_day.strftime("%Y%m%d"),
-            end_date=query_day.strftime("%Y%m%d"),
+            start_date=current_start_day.strftime("%Y%m%d"),
+            end_date=current_end_day.strftime("%Y%m%d"),
             slby_tp="0",
             stex_tp=stex_tp,
             stk_cd=symbol,
             oppo_trde_tp="%",
         )
-        preview = _build_vr_period_preview(symbol, orders, balance, after_orders)
+        latest_snapshot = None
+        con = _connect_readonly(user_db_path(username))
+        if con is not None:
+            try:
+                if "rebalance_snapshots" in _tables(con):
+                    latest_snapshot = latest_cycle_snapshot(con, profile.name)
+            finally:
+                con.close()
+        base_holding_qty = (
+            int(latest_snapshot["shares"])
+            if latest_snapshot and latest_snapshot.get("shares") is not None
+            else None
+        )
+        preview = _build_vr_period_preview(
+            symbol,
+            orders,
+            balance,
+            current_orders,
+            base_holding_qty,
+        )
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
         return {
             "ok": True,
@@ -3214,10 +3245,15 @@ def lookup_vr_period_preview(username: str, profile_name: str) -> dict[str, Any]
                 "start_date": dates.result_start.isoformat(),
                 "end_date": dates.result_end.isoformat(),
             },
-            "after_period": {
-                "start_date": after_start_day.isoformat(),
-                "end_date": query_day.isoformat(),
+            "current_order_period": {
+                "cycle_no": current_cycle_no,
+                "start_date": current_start_day.isoformat(),
+                "end_date": current_dates.result_end.isoformat(),
+                "query_end_date": current_end_day.isoformat(),
             },
+            "base_result_cycle_no": int(latest_snapshot["cycle_no"])
+            if latest_snapshot and latest_snapshot.get("cycle_no") is not None
+            else None,
             "token_renewed": renewed,
             "preview": preview,
             "message": (

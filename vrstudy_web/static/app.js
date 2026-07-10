@@ -366,12 +366,13 @@ function renderVrFillHistory(fills) {
 
 function renderVrPeriodPreview(preview) {
   renderFields("vr-api-period-preview", preview || {}, [
-    ["매도수량 합계", "sell_qty", (v) => number(v, 0)],
-    ["매도액 USD", "sell_amount"],
-    ["매수수량 합계", "buy_qty", (v) => number(v, 0)],
-    ["매수액 USD", "buy_amount"],
-    ["현재 보유개수", "holding_qty", (v) => number(v, 0)],
-    ["기간말 추정보유개수", "period_end_holding_qty", (v) => number(v, 0)],
+    ["마지막 결과 보유개수", "base_holding_qty", (v) => number(v, 0)],
+    ["현재차수 매수수량", "buy_qty", (v) => number(v, 0)],
+    ["현재차수 매수금액 USD", "buy_amount"],
+    ["현재차수 매도수량", "sell_qty", (v) => number(v, 0)],
+    ["현재차수 매도금액 USD", "sell_amount"],
+    ["현재 계좌 보유개수", "holding_qty", (v) => number(v, 0)],
+    ["현재차수 반영 보유개수", "period_end_holding_qty", (v) => number(v, 0)],
   ]);
 }
 
