@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -18,6 +18,7 @@ from .paths import app_data_dir, restrict_private_file
 KIWOOM_PROD_HOST = "https://api.kiwoom.com"
 KIWOOM_MOCK_HOST = "https://mockapi.kiwoom.com"
 TOKEN_REFRESH_BUFFER = timedelta(minutes=10)
+KST = timezone(timedelta(hours=9))
 KIWOOM_EMPTY_RESULT_CODES = {20, "20"}
 US_STOCK_EXCHANGE_CODES = ("ND", "NY", "NA")
 US_STOCK_EXCHANGE_FALLBACKS = {
@@ -161,7 +162,7 @@ def is_token_valid_for_credentials(
     expires_at = parse_kiwoom_datetime(token.expires_dt)
     if expires_at is None:
         return False
-    now = now or datetime.now()
+    now = _as_kst(now or datetime.now(KST))
     return expires_at > now + TOKEN_REFRESH_BUFFER
 
 
@@ -171,10 +172,20 @@ def parse_kiwoom_datetime(value: str) -> datetime | None:
         return None
     for fmt in ("%Y%m%d%H%M%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
         try:
-            return datetime.strptime(value, fmt)
+            return datetime.strptime(value, fmt).replace(tzinfo=KST)
         except ValueError:
             continue
-    return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return _as_kst(parsed)
+
+
+def _as_kst(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=KST)
+    return value.astimezone(KST)
 
 
 def default_us_stock_exchange_code(stk_cd: str) -> str:
