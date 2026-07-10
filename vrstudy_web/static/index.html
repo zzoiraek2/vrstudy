@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VR Study Web</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260708_mobile_settings_clean" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260710_vr_split_config" />
   </head>
   <body>
     <main class="shell">
@@ -418,9 +418,11 @@
                         <th>종료일</th>
                         <th>상태</th>
                         <th>종가</th>
+                        <th>G</th>
                         <th>V</th>
                         <th>매매액</th>
                         <th>Pool</th>
+                        <th>매수한도</th>
                         <th>자산</th>
                         <th>수량</th>
                         <th>수익률</th>
@@ -476,8 +478,10 @@
                             <thead>
                               <tr>
                                 <th>단계</th>
+                                <th>잔여개수</th>
                                 <th>가격</th>
                                 <th>수량</th>
+                                <th>Pool</th>
                               </tr>
                             </thead>
                             <tbody id="vr-buy-order-levels"></tbody>
@@ -491,8 +495,10 @@
                             <thead>
                               <tr>
                                 <th>단계</th>
+                                <th>잔여개수</th>
                                 <th>가격</th>
                                 <th>수량</th>
+                                <th>Pool</th>
                               </tr>
                             </thead>
                             <tbody id="vr-sell-order-levels"></tbody>
@@ -958,6 +964,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260709_datetime_display"></script>
+    <script src="/assets/app.js?v=20260710_vr_split_config"></script>
   </body>
 </html>

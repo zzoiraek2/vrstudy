@@ -1718,6 +1718,7 @@ def vr_profile_detail(username: str, profile_name: str) -> dict[str, Any]:
                     profit,
                     shares,
                     avg_cost,
+                    buy_limit_ratio,
                     valuation,
                     contribution,
                     dividend,
@@ -1859,6 +1860,37 @@ def create_vr_web_profile(username: str, name: str) -> dict[str, Any]:
     return asdict(profile)
 
 
+def _recalculate_vr_profile_from_cycle_zero(
+    con: duckdb.DuckDBPyConnection, profile: Profile
+) -> int | None:
+    snapshot = snapshot_for_cycle(con, profile.name, 0)
+    if not snapshot:
+        return None
+    close_price = snapshot.get("close_price")
+    if close_price is None or float(close_price) <= 0:
+        return None
+    return recalculate_cycle_results_from(
+        con,
+        profile=profile,
+        cycle_input=CycleInput(
+            cycle_no=0,
+            close_price=float(close_price),
+            trade_amount=float(snapshot.get("trade_amount") or 0),
+            shares=int(snapshot.get("shares") or 0),
+            dividend=float(snapshot.get("dividend") or 0),
+            contribution_amount=float(snapshot.get("contribution") or 0),
+            g_config=str(snapshot.get("g_config") or latest_g_config(con, profile)),
+            g_start_cycle_no=int(snapshot.get("g_start_cycle_no") or profile.start_week_no),
+            buy_limit_config=str(
+                snapshot.get("buy_limit_config") or latest_buy_limit_config(con, profile)
+            ),
+            buy_limit_start_week_no=int(
+                profile.buy_limit_start_week_no or profile.start_week_no
+            ),
+        ),
+    )
+
+
 def update_vr_web_profile(
     username: str, profile_name: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1901,6 +1933,19 @@ def update_vr_web_profile(
     if updated.quantity_step <= 0:
         raise ValueError("수량간격은 1 이상이어야 합니다.")
     save_profile(updated, profiles_dir)
+    if (
+        str(current.start_date) != str(updated.start_date)
+        or int(current.start_week_no) != int(updated.start_week_no)
+    ):
+        con = _connect_writable(user_db_path(username))
+        try:
+            _recalculate_vr_profile_from_cycle_zero(con, updated)
+            try:
+                con.execute("CHECKPOINT")
+            except Exception:
+                pass
+        finally:
+            con.close()
     return asdict(updated)
 
 
@@ -2775,6 +2820,8 @@ def _vr_api_order_rows(profile: Profile, basis: dict, stex_tp: str) -> list[dict
                 "price_key": _price_key(price),
                 "quantity": quantity,
                 "level_no": int(source.get("level_no") or 0),
+                "after_shares": int(source.get("after_shares") or 0),
+                "pool_after": round(float(source.get("pool_after") or 0), 2),
             }
         )
     return order_rows
