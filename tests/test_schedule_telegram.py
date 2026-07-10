@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from vrstudy.telegram import TelegramSettings
+from vrstudy_web.app import VrScheduleRequest
 from vrstudy_web import data
 
 
@@ -11,6 +12,16 @@ class ScheduleTelegramTest(unittest.TestCase):
 
         self.assertEqual(data._with_schedule_runtime_fields(schedule)["today_attempts_remaining"], 0)
         self.assertEqual(data._with_schedule_runtime_fields({})["today_attempts_remaining"], 1)
+
+    def test_vr_schedule_request_preserves_mode(self):
+        payload = VrScheduleRequest(
+            enabled=True,
+            time="15:55",
+            mode="generate_and_orders",
+            weekdays=[0, 1, 2],
+        )
+
+        self.assertEqual(payload.model_dump()["mode"], "generate_and_orders")
 
     def test_schedule_due_state_catches_up_only_within_window(self):
         kst = timezone(timedelta(hours=9))
@@ -28,6 +39,30 @@ class ScheduleTelegramTest(unittest.TestCase):
             data._schedule_due_state(schedule, datetime(2026, 7, 9, 17, 1, tzinfo=kst))["status"],
             "missed",
         )
+
+    def test_saving_past_schedule_time_skips_today(self):
+        kst = timezone(timedelta(hours=9))
+        schedule = {
+            "enabled": True,
+            "time": "09:30",
+            "weekdays": [3],
+            "last_attempt_date": "",
+        }
+
+        self.assertTrue(
+            data._schedule_saved_after_today_time(
+                schedule,
+                datetime(2026, 7, 9, 17, 1, tzinfo=kst),
+            )
+        )
+        saved = data._mark_schedule_saved_for_next_run(
+            schedule,
+            datetime(2026, 7, 9, 17, 1, tzinfo=kst),
+        )
+
+        self.assertEqual(saved["last_attempt_date"], "2026-07-09")
+        self.assertEqual(saved["last_status"], "saved")
+        self.assertIn("다음 실행일", saved["last_message"])
 
     def test_vr_schedule_missed_marks_without_order_execution(self):
         kst = timezone(timedelta(hours=9))

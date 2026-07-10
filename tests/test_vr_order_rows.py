@@ -1,5 +1,9 @@
 import unittest
+from datetime import date, datetime
 
+import duckdb
+
+from vrstudy_web import data
 from vrstudy_web.data import (
     _build_vr_period_preview,
     _filter_vr_sell_order_rows,
@@ -77,6 +81,38 @@ class VrOrderRowsTest(unittest.TestCase):
         self.assertEqual(summary["status"], "applied")
         self.assertEqual(summary["amount"], 1.25)
         self.assertEqual(len(summary["rows"]), 1)
+
+    def test_order_execution_record_uses_kst_now(self):
+        con = duckdb.connect(":memory:")
+        fixed_now = datetime(2026, 7, 10, 18, 30, 21)
+        old_now = data._kst_now_naive
+        data._kst_now_naive = lambda: fixed_now
+        try:
+            data._record_order_execution(
+                con,
+                "vr",
+                "VR-SOXL",
+                date(2026, 7, 10),
+                {
+                    "symbol": "SOXL",
+                    "side": "buy",
+                    "side_label": "매수",
+                    "order_type": "지정가",
+                    "price": 63.48,
+                    "quantity": 1,
+                    "stex_tp": "NA",
+                    "trde_tp": "00",
+                },
+                "sent",
+                {"ord_no": "000015393"},
+                "test",
+            )
+            row = con.execute("SELECT created_at FROM web_order_executions").fetchone()
+        finally:
+            data._kst_now_naive = old_now
+            con.close()
+
+        self.assertEqual(row[0], fixed_now)
 
 
 if __name__ == "__main__":

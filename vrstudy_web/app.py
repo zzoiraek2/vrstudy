@@ -197,6 +197,7 @@ class InfiniteScheduleRequest(BaseModel):
 class VrScheduleRequest(BaseModel):
     enabled: bool = False
     time: str = "15:55"
+    mode: str = "orders_only"
     weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
 
 

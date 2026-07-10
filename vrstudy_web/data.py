@@ -127,6 +127,17 @@ def _display_datetime_text(value: Any, fallback: str = "-") -> str:
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
+KST = timezone(timedelta(hours=9))
+
+
+def _kst_now() -> datetime:
+    return datetime.now(KST)
+
+
+def _kst_now_naive() -> datetime:
+    return _kst_now().replace(tzinfo=None)
+
+
 def _connect_readonly(db_path: Path) -> duckdb.DuckDBPyConnection | None:
     if not db_path.exists():
         return None
@@ -350,7 +361,7 @@ def _record_order_execution(
         """,
         (
             next_id(con, "web_order_executions"),
-            datetime.now(),
+            _kst_now_naive(),
             strategy,
             profile_name,
             str(row.get("symbol") or "").upper(),
@@ -637,6 +648,25 @@ def _schedule_due_state(schedule: dict[str, Any], now: datetime) -> dict[str, An
     }
 
 
+def _schedule_saved_after_today_time(schedule: dict[str, Any], now: datetime | None = None) -> bool:
+    now = now or datetime.now(timezone(timedelta(hours=9)))
+    weekdays = schedule.get("weekdays") or []
+    if now.weekday() not in weekdays:
+        return False
+    due_state = _schedule_due_state(schedule, now)
+    return due_state["status"] in {"due", "missed"}
+
+
+def _mark_schedule_saved_for_next_run(schedule: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
+    now = now or datetime.now(timezone(timedelta(hours=9)))
+    updated = dict(schedule)
+    updated["last_attempt_date"] = now.date().isoformat()
+    updated["last_run_at"] = ""
+    updated["last_status"] = "saved"
+    updated["last_message"] = "오늘 이미 지난 시간으로 저장되어 다음 실행일부터 적용됩니다."
+    return updated
+
+
 MARKET_PRICE_SYMBOLS = ("TQQQ", "SOXL")
 
 
@@ -807,8 +837,15 @@ def put_vr_schedule(username: str, profile_name: str, payload: dict[str, Any]) -
         "mode": _validate_vr_schedule_mode(payload.get("mode", current["mode"])),
         "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
     }
-    if next_schedule["time"] != current["time"] or next_schedule["mode"] != current["mode"]:
+    changed = (
+        next_schedule["time"] != current["time"]
+        or next_schedule["mode"] != current["mode"]
+        or next_schedule["weekdays"] != current["weekdays"]
+    )
+    if changed:
         next_schedule["last_attempt_date"] = ""
+        if next_schedule["enabled"] and _schedule_saved_after_today_time(next_schedule):
+            next_schedule = _mark_schedule_saved_for_next_run(next_schedule)
     return _write_vr_schedule(username, profile_name, next_schedule)
 
 
@@ -835,8 +872,15 @@ def put_infinite_schedule(username: str, profile_name: str, payload: dict[str, A
         "mode": _validate_schedule_mode(payload.get("mode", current["mode"])),
         "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
     }
-    if next_schedule["time"] != current["time"] or next_schedule["mode"] != current["mode"]:
+    changed = (
+        next_schedule["time"] != current["time"]
+        or next_schedule["mode"] != current["mode"]
+        or next_schedule["weekdays"] != current["weekdays"]
+    )
+    if changed:
         next_schedule["last_attempt_date"] = ""
+        if next_schedule["enabled"] and _schedule_saved_after_today_time(next_schedule):
+            next_schedule = _mark_schedule_saved_for_next_run(next_schedule)
     return _write_infinite_schedule(username, profile_name, next_schedule)
 
 
@@ -3560,8 +3604,8 @@ def execute_vr_web_orders(
     profile_data = _read_profile_file(user_data_dir(username), "vr", profile_name)
     profile = _profile_from_data(profile_data)
     query_day = date.today()
-    attempt_started_at = datetime.now()
-    order_datetime = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    attempt_started_at = _kst_now_naive()
+    order_datetime = _kst_now().strftime("%Y-%m-%d %H:%M:%S")
     mode, manual_count = _normalize_vr_sell_order_mode(sell_mode, sell_row_count)
     con = _connect_readonly(user_db_path(username))
     if con is None:
@@ -3743,7 +3787,7 @@ def execute_vr_schedule_generate_and_orders(
     credentials = load_kiwoom_credentials("vr", profile_name, kiwoom_credentials_path(username))
     profile = _profile_from_data(_read_profile_file(user_data_dir(username), "vr", profile_name))
     query_day = date.today()
-    order_datetime = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    order_datetime = _kst_now().strftime("%Y-%m-%d %H:%M:%S")
     token = None
     stex_tp = ""
     plan_result: dict[str, Any]
@@ -3810,8 +3854,8 @@ def execute_infinite_web_orders(
     setting = _infinite_setting_from_data(
         infinite_profile_detail(username, profile_name).get("profile") or {"name": profile_name}
     )
-    attempt_started_at = datetime.now()
-    order_datetime = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    attempt_started_at = _kst_now_naive()
+    order_datetime = _kst_now().strftime("%Y-%m-%d %H:%M:%S")
     con = _connect_readonly(user_db_path(username))
     if con is None:
         return {"ok": False, "message": "무한매수법 주문실행 실패: 데이터베이스가 없습니다."}
@@ -3952,7 +3996,7 @@ def execute_infinite_web_orders(
 def execute_infinite_after_input_workflow(
     username: str, profile_name: str, *, source: str = "manual"
 ) -> dict[str, Any]:
-    order_datetime = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    order_datetime = _kst_now().strftime("%Y-%m-%d %H:%M:%S")
 
     def structured_result(
         *,
@@ -4826,7 +4870,7 @@ def send_telegram_test_message(username: str) -> dict[str, Any]:
     settings = load_telegram_settings(telegram_settings_path(username))
     send_telegram_message(
         settings,
-        f"VR Study 웹 테스트 메시지\n{datetime.now():%Y-%m-%d %H:%M:%S}",
+        f"VR Study 웹 테스트 메시지\n{_kst_now():%Y-%m-%d %H:%M:%S}",
     )
     return {"ok": True, "message": "테스트 메시지 전송 완료"}
 
