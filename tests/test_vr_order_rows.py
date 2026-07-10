@@ -3,6 +3,7 @@ import unittest
 from vrstudy_web.data import (
     _build_vr_period_preview,
     _filter_vr_sell_order_rows,
+    _summarize_vr_dividends,
     _vr_match_buy_order_count,
 )
 
@@ -63,6 +64,19 @@ class VrOrderRowsTest(unittest.TestCase):
         self.assertEqual(preview["buy_qty"], 2)
         self.assertEqual(preview["sell_qty"], 0)
         self.assertEqual(preview["period_end_holding_qty"], 67)
+
+    def test_vr_dividend_summary_uses_foreign_settlement_amount(self):
+        summary = _summarize_vr_dividends(
+            [
+                {"stk_cd": "TQQQ", "deal_dt": "20260701", "fc_exct_amt": "1.25", "crnc_code": "USD"},
+                {"stk_cd": "SOXL", "deal_dt": "20260701", "fc_exct_amt": "99.00", "crnc_code": "USD"},
+            ],
+            "TQQQ",
+        )
+
+        self.assertEqual(summary["status"], "applied")
+        self.assertEqual(summary["amount"], 1.25)
+        self.assertEqual(len(summary["rows"]), 1)
 
 
 if __name__ == "__main__":

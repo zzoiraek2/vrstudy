@@ -71,6 +71,45 @@ class ScheduleTelegramTest(unittest.TestCase):
         self.assertTrue(sent)
         self.assertIn("VR-SOXL", sent[0])
 
+    def test_vr_schedule_generate_mode_uses_generate_workflow(self):
+        kst = timezone(timedelta(hours=9))
+        executed: list[str] = []
+        generated: list[str] = []
+        old_profiles = data.vr_profiles
+        old_read = data._read_vr_schedule
+        old_write = data._write_vr_schedule
+        old_execute = data.execute_vr_web_orders
+        old_generate = data.execute_vr_schedule_generate_and_orders
+        data.vr_profiles = lambda username: [{"name": "VR-SOXL"}]
+        data._read_vr_schedule = lambda username, profile_name: {
+            "enabled": True,
+            "time": "15:55",
+            "mode": "generate_and_orders",
+            "weekdays": [3],
+            "last_attempt_date": "",
+        }
+        data._write_vr_schedule = lambda username, profile_name, schedule: dict(schedule)
+        data.execute_vr_web_orders = lambda username, profile_name: executed.append(profile_name) or {"ok": True}
+        data.execute_vr_schedule_generate_and_orders = (
+            lambda username, profile_name: generated.append(profile_name) or {"ok": True}
+        )
+        try:
+            result = data.run_due_vr_schedules(
+                ["user"],
+                datetime(2026, 7, 9, 16, 10, tzinfo=kst),
+            )
+        finally:
+            data.vr_profiles = old_profiles
+            data._read_vr_schedule = old_read
+            data._write_vr_schedule = old_write
+            data.execute_vr_web_orders = old_execute
+            data.execute_vr_schedule_generate_and_orders = old_generate
+
+        self.assertFalse(executed)
+        self.assertEqual(generated, ["VR-SOXL"])
+        self.assertTrue(result[0]["ok"])
+        self.assertEqual(result[0]["schedule_mode"], "generate_and_orders")
+
     def test_structured_order_result_telegram_sections(self):
         captured: list[str] = []
         old_load = data.load_telegram_settings

@@ -39,6 +39,7 @@ from vrstudy.kiwoom_api import (
     request_us_period_order_history,
     request_us_sell_order,
     request_us_stock_quote,
+    request_us_transaction_history,
     resolve_us_stock_exchange_code,
     save_profile_token,
 )
@@ -580,6 +581,7 @@ DEFAULT_INFINITE_SCHEDULE = {
 DEFAULT_VR_SCHEDULE = {
     "enabled": False,
     "time": "15:55",
+    "mode": "orders_only",
     "weekdays": [0, 1, 2, 3, 4],
     "last_attempt_date": "",
     "last_run_at": "",
@@ -739,6 +741,15 @@ def _validate_schedule_mode(value: Any) -> str:
     return mode
 
 
+def _validate_vr_schedule_mode(value: Any) -> str:
+    mode = str(value or "orders_only").strip()
+    if mode in {"orders_only", "generate_and_orders"}:
+        return mode
+    if mode == "after_input":
+        return "generate_and_orders"
+    raise ValueError("VR 스케줄 동작은 주문실행 또는 주문표 생성 및 주문실행 중 하나여야 합니다.")
+
+
 def _read_infinite_schedule(username: str, profile_name: str) -> dict[str, Any]:
     path = _infinite_schedule_path(username, profile_name)
     data = dict(DEFAULT_INFINITE_SCHEDULE)
@@ -768,6 +779,7 @@ def _read_vr_schedule(username: str, profile_name: str) -> dict[str, Any]:
             pass
     data["enabled"] = bool(data.get("enabled"))
     data["time"] = _validate_schedule_time(data.get("time") or DEFAULT_VR_SCHEDULE["time"])
+    data["mode"] = _validate_vr_schedule_mode(data.get("mode") or DEFAULT_VR_SCHEDULE["mode"])
     data["weekdays"] = _validate_schedule_weekdays(data.get("weekdays") or DEFAULT_VR_SCHEDULE["weekdays"])
     return _with_schedule_runtime_fields(data)
 
@@ -792,9 +804,10 @@ def put_vr_schedule(username: str, profile_name: str, payload: dict[str, Any]) -
         **current,
         "enabled": bool(payload.get("enabled", current["enabled"])),
         "time": _validate_schedule_time(payload.get("time", current["time"])),
+        "mode": _validate_vr_schedule_mode(payload.get("mode", current["mode"])),
         "weekdays": _validate_schedule_weekdays(payload.get("weekdays", current["weekdays"])),
     }
-    if next_schedule["time"] != current["time"]:
+    if next_schedule["time"] != current["time"] or next_schedule["mode"] != current["mode"]:
         next_schedule["last_attempt_date"] = ""
     return _write_vr_schedule(username, profile_name, next_schedule)
 
@@ -3270,6 +3283,173 @@ def lookup_vr_period_preview(username: str, profile_name: str) -> dict[str, Any]
         }
 
 
+def _vr_basis_covers_day(basis: dict | None, query_day: date) -> bool:
+    if not basis:
+        return False
+    try:
+        start_day = date.fromisoformat(str(basis["start_date"]))
+        end_day = date.fromisoformat(str(basis["end_date"]))
+    except Exception:
+        return False
+    return start_day <= query_day <= end_day
+
+
+def _vr_order_basis_for_today(username: str, profile: Profile, query_day: date) -> dict | None:
+    con = _connect_readonly(user_db_path(username))
+    if con is None:
+        return None
+    try:
+        return order_basis_for_next_cycle(con, profile)
+    finally:
+        con.close()
+
+
+def _summarize_vr_dividends(rows: list[dict], symbol: str) -> dict[str, Any]:
+    symbol = symbol.upper()
+    dividend_rows: list[dict[str, Any]] = []
+    total = 0.0
+    for row in rows:
+        row_symbol = str(row.get("stk_cd") or "").upper()
+        if row_symbol and row_symbol != symbol:
+            continue
+        amount = _clean_float(
+            _first_row_value(row, "fc_exct_amt", "fc_deal_amt", "exct_amt", "deal_amt")
+        )
+        if amount == 0:
+            continue
+        item = {
+            "date": _format_api_date(str(row.get("deal_dt") or "")),
+            "symbol": row_symbol or symbol,
+            "amount": amount,
+            "currency": str(row.get("crnc_code") or "USD").strip() or "USD",
+            "description": str(row.get("rmrk_nm") or row.get("deal_kind_nm") or "").strip(),
+        }
+        dividend_rows.append(item)
+        total += amount
+    return {
+        "status": "applied" if total else "none",
+        "amount": round(total, 4),
+        "rows": dividend_rows,
+        "message": f"{_clean_number_text(round(total, 4))} USD" if total else "해당없음",
+    }
+
+
+def _lookup_vr_dividend_summary(
+    credentials: KiwoomCredentials,
+    token: Any,
+    *,
+    symbol: str,
+    stex_tp: str,
+    start_day: date,
+    end_day: date,
+) -> dict[str, Any]:
+    history = request_us_transaction_history(
+        credentials,
+        token,
+        start_date=start_day.strftime("%Y%m%d"),
+        end_date=end_day.strftime("%Y%m%d"),
+        tp="8",
+        stex_tp=stex_tp,
+        stk_cd=symbol.upper(),
+        krw_repl_skip_yn="N",
+    )
+    summary = _summarize_vr_dividends(_result_rows(history), symbol)
+    summary["start_date"] = start_day.isoformat()
+    summary["end_date"] = end_day.isoformat()
+    return summary
+
+
+def _vr_cycle_input_defaults_for_auto(username: str, profile: Profile) -> dict[str, Any]:
+    con = _connect_writable(user_db_path(username))
+    try:
+        return _vr_cycle_input_defaults(con, profile)
+    finally:
+        con.close()
+
+
+def _auto_create_vr_order_basis(
+    username: str,
+    profile_name: str,
+    *,
+    credentials: KiwoomCredentials,
+    token: Any,
+    stex_tp: str,
+    query_day: date,
+) -> dict[str, Any]:
+    profile = _profile_from_data(_read_profile_file(user_data_dir(username), "vr", profile_name))
+    basis = _vr_order_basis_for_today(username, profile, query_day)
+    if _vr_basis_covers_day(basis, query_day):
+        return {
+            "status": "skipped",
+            "message": "이미 오늘 실행 가능한 주문표가 있습니다.",
+            "dividend_result": {"status": "skipped", "amount": 0.0, "message": "해당없음"},
+        }
+
+    defaults = _vr_cycle_input_defaults_for_auto(username, profile)
+    if not defaults.get("allowed"):
+        raise ValueError("아직 입력 가능한 VR 차수가 아니거나 계산이 중단된 프로필입니다.")
+    close_price = _clean_float(defaults.get("close_price"))
+    if close_price <= 0:
+        raise ValueError("주문표 자동 생성에 필요한 종가가 없습니다.")
+
+    cycle_no, dates = _latest_completed_vr_result_period(profile, query_day)
+    if int(defaults.get("cycle_no") or -1) != cycle_no:
+        raise ValueError(
+            f"자동 생성 대상 차수가 맞지 않습니다. 입력대상 {defaults.get('cycle_no')}차 / 조회대상 {cycle_no}차"
+        )
+
+    period_preview = lookup_vr_period_preview(username, profile_name)
+    if not period_preview.get("ok"):
+        raise ValueError(str(period_preview.get("message") or "VR 결과구간 조회 실패"))
+    preview = period_preview.get("preview") or {}
+    shares = int(preview.get("period_end_holding_qty") or 0)
+    if shares <= 0:
+        raise ValueError("주문표 자동 생성에 필요한 보유개수가 없습니다.")
+
+    try:
+        dividend_result = _lookup_vr_dividend_summary(
+            credentials,
+            token,
+            symbol=profile.symbol,
+            stex_tp=stex_tp,
+            start_day=dates.result_start,
+            end_day=dates.result_end,
+        )
+    except Exception as exc:
+        dividend_result = {
+            "status": "failed",
+            "amount": 0.0,
+            "message": f"조회실패: {exc}",
+        }
+
+    buy_amount = _clean_float(preview.get("buy_amount"))
+    sell_amount = _clean_float(preview.get("sell_amount"))
+    dividend = float(dividend_result.get("amount") or 0.0)
+    payload = {
+        "cycle_no": cycle_no,
+        "close_price": close_price,
+        "trade_amount": round(sell_amount - buy_amount, 4),
+        "shares": shares,
+        "dividend": dividend,
+        "contribution_amount": defaults.get("contribution_amount") or 0,
+        "g_config": defaults.get("g_config") or "",
+        "g_start_cycle_no": defaults.get("g_start_cycle_no") or profile.start_week_no,
+        "buy_limit_config": defaults.get("buy_limit_config") or "",
+        "buy_limit_start_week_no": defaults.get("buy_limit_start_week_no") or 2,
+    }
+    detail = save_vr_web_cycle_input(username, profile_name, payload)
+    cycle_save = detail.get("cycle_save") or {}
+    return {
+        "status": "success",
+        "message": str(cycle_save.get("message") or "주문표 생성 완료"),
+        "cycle_no": cycle_no,
+        "snapshot_id": cycle_save.get("snapshot_id"),
+        "payload": payload,
+        "period_preview": preview,
+        "dividend_result": dividend_result,
+    }
+
+
 def preview_vr_web_orders(
     username: str,
     profile_name: str,
@@ -3374,6 +3554,7 @@ def execute_vr_web_orders(
     sell_mode: str = "match_buy",
     sell_row_count: int | None = None,
     force_reorder: bool = False,
+    send_telegram: bool = True,
 ) -> dict[str, Any]:
     credentials = load_kiwoom_credentials("vr", profile_name, kiwoom_credentials_path(username))
     profile_data = _read_profile_file(user_data_dir(username), "vr", profile_name)
@@ -3519,7 +3700,9 @@ def execute_vr_web_orders(
             "unmatched_fills": unmatched_fills,
             "fills": fill_rows,
         }
-        return _with_api_order_result_telegram(username, "vr", profile_name, result)
+        return _maybe_with_api_order_result_telegram(
+            username, "vr", profile_name, result, send_telegram
+        )
     except KiwoomApiError as exc:
         result = {
             "ok": False,
@@ -3532,9 +3715,11 @@ def execute_vr_web_orders(
             "order_date": query_day.isoformat(),
             "order_datetime": order_datetime,
         }
-        return _with_api_order_result_telegram(username, "vr", profile_name, result)
+        return _maybe_with_api_order_result_telegram(
+            username, "vr", profile_name, result, send_telegram
+        )
     except Exception as exc:
-        return _with_api_order_result_telegram(
+        return _maybe_with_api_order_result_telegram(
             username,
             "vr",
             profile_name,
@@ -3547,7 +3732,70 @@ def execute_vr_web_orders(
                     username, "vr", profile_name, query_day, attempt_started_at
                 ),
             },
+            send_telegram,
         )
+
+
+def execute_vr_schedule_generate_and_orders(
+    username: str,
+    profile_name: str,
+) -> dict[str, Any]:
+    credentials = load_kiwoom_credentials("vr", profile_name, kiwoom_credentials_path(username))
+    profile = _profile_from_data(_read_profile_file(user_data_dir(username), "vr", profile_name))
+    query_day = date.today()
+    order_datetime = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    token = None
+    stex_tp = ""
+    plan_result: dict[str, Any]
+    dividend_result: dict[str, Any] = {"status": "skipped", "amount": 0.0, "message": "해당없음"}
+    try:
+        token, _renewed = _ensure_user_kiwoom_token(username, "vr", profile_name, credentials)
+        stex_tp = _resolve_user_exchange_code(credentials, token, profile.symbol)
+        created = _auto_create_vr_order_basis(
+            username,
+            profile_name,
+            credentials=credentials,
+            token=token,
+            stex_tp=stex_tp,
+            query_day=query_day,
+        )
+        dividend_result = dict(created.get("dividend_result") or dividend_result)
+        plan_result = {
+            "status": str(created.get("status") or "success"),
+            "message": str(created.get("message") or ""),
+            "cycle_no": created.get("cycle_no"),
+            "snapshot_id": created.get("snapshot_id"),
+        }
+    except Exception as exc:
+        plan_result = {"status": "failed", "message": str(exc)}
+        result = {
+            "ok": False,
+            "message": f"VR 주문표 생성 실패: {exc}",
+            "schedule_mode": "generate_and_orders",
+            "order_datetime": order_datetime,
+            "order_plan_result": plan_result,
+            "dividend_result": dividend_result,
+            "order_attempt_result": {"status": "not_run", "message": "주문표 생성 실패로 주문실행을 건너뜀"},
+            "order_executions": [],
+        }
+        return _with_api_order_result_telegram(username, "vr", profile_name, result)
+
+    order_result = execute_vr_web_orders(
+        username,
+        profile_name,
+        send_telegram=False,
+    )
+    order_attempt_result = _order_attempt_result_from_result(order_result)
+    result = {
+        **order_result,
+        "ok": bool(order_result.get("ok")),
+        "schedule_mode": "generate_and_orders",
+        "order_datetime": order_result.get("order_datetime") or order_datetime,
+        "order_plan_result": plan_result,
+        "dividend_result": dividend_result,
+        "order_attempt_result": order_attempt_result,
+    }
+    return _with_api_order_result_telegram(username, "vr", profile_name, result)
 
 
 def execute_infinite_web_orders(
@@ -4290,7 +4538,12 @@ def run_due_vr_schedules(
             }
             _write_vr_schedule(username, profile_name, running)
             try:
-                result = execute_vr_web_orders(username, profile_name)
+                if schedule.get("mode") == "generate_and_orders":
+                    result = execute_vr_schedule_generate_and_orders(username, profile_name)
+                    result["schedule_mode"] = "generate_and_orders"
+                else:
+                    result = execute_vr_web_orders(username, profile_name)
+                    result["schedule_mode"] = "orders_only"
                 result["source"] = "schedule"
             except Exception as exc:
                 result = {"ok": False, "message": f"자동 실행 실패: {exc}"}
@@ -4679,7 +4932,33 @@ def _send_api_order_result_telegram(
         f"주문일시: {result.get('order_datetime') or result.get('order_date') or '-'}",
     ]
     plan_result = result.get("order_plan_result")
-    if isinstance(plan_result, dict):
+    if strategy == "vr" and result.get("schedule_mode") == "generate_and_orders":
+        plan = plan_result if isinstance(plan_result, dict) else {}
+        dividend = result.get("dividend_result") if isinstance(result.get("dividend_result"), dict) else {}
+        attempt_result = _order_attempt_result_from_result(result)
+        plan_status = str(plan.get("status") or "")
+        plan_label = "해당없음" if plan_status == "skipped" else _workflow_result_label(plan_status)
+        dividend_status = str(dividend.get("status") or "")
+        dividend_message = str(dividend.get("message") or "").strip()
+        if not dividend_message:
+            amount = _clean_float(dividend.get("amount"))
+            dividend_message = f"{_clean_number_text(amount)} USD" if amount else "해당없음"
+        dividend_text = dividend_message
+        if dividend_status == "failed" and not dividend_text.startswith("조회실패"):
+            dividend_text = f"조회실패: {dividend_text or '-'}"
+        lines.extend(
+            [
+                "",
+                f"1. 주문표 생성: {plan_label}",
+                f"- {str(plan.get('message') or '-').strip()}",
+                "",
+                f"2. 배당금: {dividend_text}",
+                "",
+                f"3. 주문결과: {_workflow_result_label(str(attempt_result.get('status') or ''))}",
+                f"- {str(attempt_result.get('message') or '-').strip()}",
+            ]
+        )
+    elif isinstance(plan_result, dict):
         attempt_result = _order_attempt_result_from_result(result)
         lines.extend(
             [

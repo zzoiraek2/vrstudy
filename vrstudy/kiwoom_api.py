@@ -420,6 +420,8 @@ def request_us_transaction_history(
             next_key=next_key,
             timeout=timeout,
         )
+        if result.body.get("return_code") in KIWOOM_EMPTY_RESULT_CODES:
+            return _empty_kiwoom_result("ust21100", result)
         _raise_for_kiwoom_body(result.body)
         pages.append(result)
         next_key = result.headers.get("next-key", "")

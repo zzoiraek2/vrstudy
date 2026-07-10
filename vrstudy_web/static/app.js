@@ -761,7 +761,7 @@ function renderSchedule(kind, schedule) {
   form.elements.enabled.checked = Boolean(schedule?.enabled);
   form.elements.time.value = schedule?.time || "15:55";
   const modeSelect = form.querySelector('select[name="mode"]');
-  if (modeSelect) modeSelect.value = schedule?.mode || "after_input";
+  if (modeSelect) modeSelect.value = schedule?.mode || (kind === "vr" ? "orders_only" : "after_input");
   const weekdays = new Set((schedule?.weekdays || [0, 1, 2, 3, 4]).map((day) => String(day)));
   form.querySelectorAll('input[name="weekday"]').forEach((input) => {
     input.checked = weekdays.has(input.value);
@@ -789,7 +789,7 @@ function schedulePayload(kind) {
     weekdays,
   };
   const modeSelect = form.querySelector('select[name="mode"]');
-  if (modeSelect) payload.mode = modeSelect.value || "after_input";
+  if (modeSelect) payload.mode = modeSelect.value || (kind === "vr" ? "orders_only" : "after_input");
   return payload;
 }
 
@@ -812,7 +812,7 @@ function schedulePayloadFromForm(form, kind) {
     weekdays,
   };
   const modeSelect = form.querySelector('select[name="mode"]');
-  if (kind === "infinite" && modeSelect) payload.mode = modeSelect.value || "after_input";
+  if (modeSelect) payload.mode = modeSelect.value || (kind === "vr" ? "orders_only" : "after_input");
   return payload;
 }
 
@@ -828,8 +828,14 @@ function renderMobileScheduleSheet(kind) {
   form.elements.enabled.checked = Boolean(schedule.enabled);
   form.elements.time.value = schedule.time || "15:55";
   const modeField = document.getElementById("mobile-schedule-mode-field");
-  if (modeField) modeField.hidden = isVr;
-  if (form.elements.mode) form.elements.mode.value = schedule.mode || "after_input";
+  if (modeField) modeField.hidden = false;
+  if (form.elements.mode) {
+    const afterInputOption = form.elements.mode.querySelector('option[value="after_input"]');
+    const generateOption = form.elements.mode.querySelector('option[value="generate_and_orders"]');
+    if (afterInputOption) afterInputOption.hidden = isVr;
+    if (generateOption) generateOption.hidden = !isVr;
+    form.elements.mode.value = schedule.mode || (isVr ? "orders_only" : "after_input");
+  }
   const weekdays = new Set((schedule.weekdays || [0, 1, 2, 3, 4]).map((day) => String(day)));
   form.querySelectorAll('input[name="weekday"]').forEach((input) => {
     input.checked = weekdays.has(input.value);
@@ -1646,7 +1652,11 @@ function mobileScheduleCard(title, schedule, modeText = "") {
 
 function renderMobileAutomation() {
   setMobileCards("mobile-automation-cards", [
-    mobileScheduleCard("VR 자동 주문", state.vrSchedule, "주문실행"),
+    mobileScheduleCard(
+      "VR 자동 주문",
+      state.vrSchedule,
+      state.vrSchedule?.mode === "generate_and_orders" ? "주문표 생성 및 주문실행" : "주문실행",
+    ),
     mobileScheduleCard(
       "무한매수법 자동 주문",
       state.infiniteSchedule,
