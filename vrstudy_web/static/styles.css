@@ -325,6 +325,16 @@ input[readonly]:focus,
   background: #fff;
 }
 
+.chart-box-wide {
+  grid-column: 1 / -1;
+  height: 300px;
+  min-height: 300px;
+}
+
+.chart-box-hidden {
+  display: none !important;
+}
+
 .chart-empty {
   display: grid;
   place-items: center;

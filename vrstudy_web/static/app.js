@@ -1107,6 +1107,17 @@ function infiniteChartPoint(row) {
   return { principal, invested, marketValue, cash, totalAsset, profit, returnRate };
 }
 
+function setSingleDashboardChart(primaryId, hiddenId, enabled) {
+  const primary = document.getElementById(primaryId);
+  const hidden = document.getElementById(hiddenId);
+  primary?.classList.toggle("chart-box-wide", enabled);
+  hidden?.classList.toggle("chart-box-hidden", enabled);
+  if (enabled && state.dashboardCharts.instances[hiddenId]) {
+    state.dashboardCharts.instances[hiddenId].dispose();
+    delete state.dashboardCharts.instances[hiddenId];
+  }
+}
+
 function markChartBoxes(message) {
   [
     "dashboard-vr-band-chart",
@@ -1249,54 +1260,46 @@ function renderDashboardInfiniteCharts(data) {
   const rowsData = [...(data?.rows || [])].sort((left, right) => String(left.trade_date).localeCompare(String(right.trade_date)));
   text("dashboard-infinite-chart-label", data?.label || "-");
   const dates = rowsData.map((row) => row.trade_date);
-  const assetChart = chartInstance("dashboard-infinite-asset-chart");
-  const profitChart = chartInstance("dashboard-infinite-profit-chart");
+  setSingleDashboardChart("dashboard-infinite-asset-chart", "dashboard-infinite-profit-chart", true);
+  const combinedChart = chartInstance("dashboard-infinite-asset-chart");
   if (!rowsData.length) return;
   const points = rowsData.map(infiniteChartPoint);
-  let stopLossTotal = 0;
-  let feeTotal = 0;
-  let cashFlowTotal = 0;
-  const stopLosses = [];
-  const fees = [];
-  const cashFlows = [];
-  const netProfits = [];
-  rowsData.forEach((row) => {
-    stopLossTotal += chartValue(row.stop_loss);
-    feeTotal += chartValue(row.fee);
-    cashFlowTotal += chartValue(row.cash_flow_amount);
-    stopLosses.push(stopLossTotal);
-    fees.push(feeTotal);
-    cashFlows.push(cashFlowTotal);
-    netProfits.push(stopLossTotal - feeTotal);
-  });
-  if (assetChart) {
-    assetChart.setOption({
-      ...commonChartOption("기준원금 대비 현재 총자산", dates),
-      series: [
-        { name: "기준원금", type: "line", data: points.map((point) => point.principal), itemStyle: { color: "#555" } },
-        { name: "현재 총자산", type: "line", data: points.map((point) => point.totalAsset), smooth: true, itemStyle: { color: "#2f9e44" } },
-        { name: "보유평가액", type: "line", data: points.map((point) => point.marketValue), smooth: true, lineStyle: { type: "dashed" }, itemStyle: { color: "#4f7df3" } },
-        { name: "잔여현금", type: "line", data: points.map((point) => point.cash), lineStyle: { type: "dashed" }, itemStyle: { color: "#f08c00" } },
-      ],
-    });
-  }
-  if (profitChart) {
-    profitChart.setOption({
-      ...commonChartOption("누적손익 / 수익률", dates),
+  const periodProfits = points.map((point, index) => point.profit - (index > 0 ? points[index - 1].profit : 0));
+  if (combinedChart) {
+    combinedChart.setOption({
+      ...commonChartOption("무한매수 자산 / 손익 / 수익률", dates),
+      legend: { top: 28, type: "scroll", textStyle: { fontSize: 11 } },
+      grid: { left: 58, right: 58, top: 70, bottom: 42 },
       tooltip: {
         trigger: "axis",
-        valueFormatter: (value) => number(value),
+        axisPointer: { type: "cross" },
+        formatter(params) {
+          const items = Array.isArray(params) ? params : [params];
+          const title = items[0]?.axisValueLabel || "";
+          const lines = items.map((item) => {
+            const value = item.seriesName === "수익률" ? `${number(item.value, 2)}%` : number(item.value);
+            return `${item.marker}${item.seriesName}: ${value}`;
+          });
+          return [title, ...lines].join("<br/>");
+        },
       },
       yAxis: [
-        { type: "value", name: "손익", axisLabel: { formatter: (value) => Number(value).toLocaleString() } },
+        { type: "value", name: "USD", axisLabel: { formatter: (value) => Number(value).toLocaleString() } },
         { type: "value", name: "수익률", axisLabel: { formatter: (value) => `${Number(value).toFixed(1)}%` } },
       ],
       series: [
-        { name: "누적손익", type: "bar", data: points.map((point) => point.profit), itemStyle: { color: (item) => (item.value >= 0 ? "#36a269" : "#e03131") } },
-        { name: "수익률", type: "line", yAxisIndex: 1, data: points.map((point) => point.returnRate * 100), smooth: true, itemStyle: { color: "#7c3aed" }, tooltip: { valueFormatter: (value) => `${number(value)}%` } },
-        { name: "실현손익-수수료", type: "line", data: netProfits, lineStyle: { type: "dashed" }, itemStyle: { color: "#4f7df3" } },
-        { name: "누적수수료", type: "line", data: fees, lineStyle: { type: "dashed" }, itemStyle: { color: "#e03131" } },
-        { name: "누적입출금", type: "line", data: cashFlows, itemStyle: { color: "#f08c00" } },
+        { name: "기준원금", type: "line", data: points.map((point) => point.principal), symbol: "none", lineStyle: { type: "dashed", width: 1.5 }, itemStyle: { color: "#6b7280" } },
+        { name: "현재총자산", type: "line", data: points.map((point) => point.totalAsset), smooth: true, symbolSize: 6, lineStyle: { width: 2.4 }, itemStyle: { color: "#20784f" } },
+        {
+          name: "기간손익",
+          type: "bar",
+          data: periodProfits,
+          barMaxWidth: 34,
+          itemStyle: { color: (item) => (item.value >= 0 ? "rgba(54, 162, 105, 0.72)" : "rgba(224, 49, 49, 0.72)") },
+          markLine: { symbol: "none", label: { show: false }, lineStyle: { color: "#9ca3af", type: "dashed", width: 1 }, data: [{ yAxis: 0 }] },
+        },
+        { name: "누적손익", type: "line", data: points.map((point) => point.profit), smooth: true, symbolSize: 6, lineStyle: { width: 2.2 }, itemStyle: { color: "#2563eb" } },
+        { name: "수익률", type: "line", yAxisIndex: 1, data: points.map((point) => point.returnRate * 100), smooth: true, symbolSize: 6, lineStyle: { width: 2.2 }, itemStyle: { color: "#7c3aed" } },
       ],
     });
   }
