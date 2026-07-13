@@ -311,6 +311,11 @@ input[readonly]:focus,
   min-height: 0;
 }
 
+.dashboard-charts .chart-box {
+  height: 300px;
+  min-height: 300px;
+}
+
 .chart-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
