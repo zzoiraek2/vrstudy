@@ -2560,7 +2560,7 @@ async function loadVrDetail(profileName) {
   renderVrOrderBasisSummary(detail);
   const snapshots = visibleVrSnapshots(detail);
   text("vr-snapshot-count", `${snapshots.length}개`);
-  rows("vr-snapshots", snapshots, 14, (row) => [
+  rows("vr-snapshots", snapshots, 15, (row) => [
     row.cycle_no,
     row.week_no,
     row.start_date,
@@ -2570,6 +2570,7 @@ async function loadVrDetail(profileName) {
     number(row.g),
     number(row.v),
     number(row.trade_amount),
+    number(row.dividend),
     number(row.pool),
     buyLimitText(row),
     number(row.account_total),
