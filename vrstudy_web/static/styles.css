@@ -2038,13 +2038,34 @@ tbody tr.selected-data-row {
     font-size: 15px;
   }
 
-  #mobile-automation-cards .mobile-profile-row:nth-child(2) {
-    min-height: 36px;
+  .mobile-auto-profile-field {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
     margin-top: 4px;
-    padding: 0 10px;
+    padding: 7px 9px 7px 11px;
     border: 0;
     border-radius: 9px;
     background: #f7f9fa;
+  }
+
+  .mobile-auto-profile-field span {
+    color: #52616d;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .mobile-auto-profile-field select {
+    min-width: 0;
+    height: 38px;
+    border-color: #d5e0e5;
+    border-radius: 9px;
+    background: #fff;
+    color: #17212b;
+    font-size: 13px;
+    font-weight: 700;
   }
 
   .mobile-sheet-overlay {

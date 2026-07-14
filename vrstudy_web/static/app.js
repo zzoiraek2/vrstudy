@@ -1635,9 +1635,53 @@ function mobileWeekdaysText(days) {
     .join(", ");
 }
 
-function mobileScheduleCard(title, schedule, modeText = "") {
+function mobileScheduleProfileField(kind, profileName, profiles) {
+  const field = document.createElement("label");
+  field.className = "mobile-auto-profile-field";
+  const label = document.createElement("span");
+  label.textContent = "프로필";
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", kind === "vr" ? "VR 자동 주문 프로필" : "무한매수법 자동 주문 프로필");
+  if (profiles.length) {
+    profiles.forEach((profile) => {
+      const option = document.createElement("option");
+      option.value = profile.name;
+      option.textContent = profile.name;
+      select.appendChild(option);
+    });
+    select.value = profiles.some((profile) => profile.name === profileName)
+      ? profileName
+      : profiles[0].name;
+  } else {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "미선택";
+    select.appendChild(option);
+    select.disabled = true;
+  }
+  select.addEventListener("change", async (event) => {
+    const selected = event.target.value;
+    if (!selected) return;
+    event.target.disabled = true;
+    try {
+      if (kind === "vr") {
+        await loadVrDetail(selected);
+        await loadKiwoomForm("vr");
+      } else {
+        await loadInfiniteDetail(selected);
+        await loadKiwoomForm("infinite");
+      }
+    } finally {
+      if (event.target.isConnected) event.target.disabled = false;
+    }
+  });
+  field.append(label, select);
+  return field;
+}
+
+function mobileScheduleCard(kind, title, schedule, profileName, profiles, modeText = "") {
   const enabled = Boolean(schedule?.enabled);
-  return mobileProfileCard(
+  const card = mobileProfileCard(
     title,
     [
       ["상태", enabled ? "ON" : "OFF"],
@@ -1649,18 +1693,28 @@ function mobileScheduleCard(title, schedule, modeText = "") {
     ],
     enabled ? "활성" : "중지",
   );
+  card.querySelector(".mobile-profile-title")?.after(
+    mobileScheduleProfileField(kind, profileName, profiles),
+  );
+  return card;
 }
 
 function renderMobileAutomation() {
   setMobileCards("mobile-automation-cards", [
     mobileScheduleCard(
+      "vr",
       "VR 자동 주문",
       state.vrSchedule,
+      state.selectedVr,
+      state.vrProfiles,
       state.vrSchedule?.mode === "generate_and_orders" ? "주문표 생성 및 주문실행" : "주문실행",
     ),
     mobileScheduleCard(
+      "infinite",
       "무한매수법 자동 주문",
       state.infiniteSchedule,
+      state.selectedInfinite,
+      state.infiniteProfiles,
       state.infiniteSchedule?.mode === "orders_only" ? "주문실행" : "체결입력 후 주문실행",
     ),
   ], "자동 실행 설정이 없습니다.");
