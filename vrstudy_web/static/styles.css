@@ -1862,4 +1862,453 @@ tbody tr.selected-data-row {
     background: #eaf3f6;
     color: #194b5e;
   }
+
+  /* Mobile-wide polish: compact shell, safer values, and unified controls. */
+  .topbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px 14px;
+    padding: 11px 13px;
+  }
+
+  .topbar .eyebrow {
+    margin-bottom: 2px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  .topbar h1 {
+    font-size: 20px;
+    letter-spacing: -0.03em;
+  }
+
+  .session-box {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 5px 6px;
+    width: auto;
+    min-width: 0;
+    justify-content: end;
+  }
+
+  .session-box span {
+    min-width: 0;
+    color: #667085;
+    font-size: 11px;
+    text-align: right;
+  }
+
+  #today-label {
+    grid-column: 1 / -1;
+  }
+
+  #session-user {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .session-box button {
+    width: auto;
+    min-width: 0;
+    height: 30px;
+    padding: 0 8px;
+    border-color: #d7e1e6;
+    border-radius: 8px;
+    background: #fff;
+    color: #315d73;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .session-box button:hover {
+    background: #f1f6f8;
+  }
+
+  button:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  button:focus-visible,
+  select:focus-visible {
+    border-color: #315d73;
+    outline: 2px solid rgba(49, 93, 115, 0.25);
+    outline-offset: 2px;
+  }
+
+  .mobile-summary-header {
+    min-height: 30px;
+    padding: 0 2px;
+  }
+
+  .mobile-summary-header h2 {
+    color: #17212b;
+    font-size: 21px;
+    letter-spacing: -0.025em;
+  }
+
+  .mobile-summary-header span {
+    color: #667085;
+    font-size: 11px;
+  }
+
+  .mobile-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .mobile-summary-grid .mobile-metric-card:nth-child(n + 3) {
+    grid-column: 1 / -1;
+  }
+
+  .mobile-metric-card {
+    min-width: 0;
+  }
+
+  .mobile-metric-card strong,
+  .mobile-metric-card small {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-metric-card small {
+    line-height: 1.35;
+  }
+
+  .mobile-profile-title > strong {
+    min-width: 0;
+  }
+
+  .mobile-profile-row {
+    min-width: 0;
+  }
+
+  .mobile-profile-row strong {
+    min-width: 0;
+    max-width: 68%;
+    overflow-wrap: anywhere;
+  }
+
+  #mobile-vr-cards-main > .mobile-profile-card:first-child .mobile-profile-row:nth-child(4) {
+    grid-column: 1 / -1;
+    min-height: 64px;
+  }
+
+  #mobile-vr-cards-main > .mobile-profile-card:first-child .mobile-profile-row:nth-child(4) strong {
+    overflow: visible;
+    font-size: 16px;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  #mobile-vr-cards-main > .mobile-profile-card:first-child .mobile-profile-row:last-child {
+    grid-column: auto;
+    min-height: 72px;
+    border-color: #edf1f4;
+    background: #f8fafb;
+  }
+
+  #mobile-vr-cards-main > .mobile-profile-card:first-child .mobile-profile-row:last-child strong {
+    color: #17212b;
+    font-size: 17px;
+  }
+
+  #mobile-settings-cards .mobile-profile-row strong,
+  #mobile-automation-cards .mobile-profile-row strong {
+    white-space: normal;
+  }
+
+  .mobile-link-card {
+    transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+  }
+
+  .mobile-link-card:active {
+    border-color: #b9ced7;
+    transform: translateY(1px);
+  }
+
+  .mobile-link-chevron {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border-radius: 999px;
+    background: #f0f5f7;
+    font-size: 15px;
+  }
+
+  #mobile-automation-cards .mobile-profile-row:nth-child(2) {
+    min-height: 36px;
+    margin-top: 4px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 9px;
+    background: #f7f9fa;
+  }
+
+  .mobile-sheet-overlay {
+    background: rgba(15, 31, 40, 0.44);
+    backdrop-filter: blur(3px);
+  }
+
+  .mobile-sheet {
+    max-height: 92dvh;
+    padding: 0;
+    border: 1px solid #e3e8ed;
+    border-bottom: 0;
+    border-radius: 20px 20px 0 0;
+    background: #f7f9fa;
+    box-shadow: 0 -18px 48px rgba(15, 31, 40, 0.22);
+  }
+
+  .mobile-sheet form {
+    gap: 13px;
+    padding: 18px 16px calc(14px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-sheet-header {
+    align-items: center;
+    padding-bottom: 2px;
+  }
+
+  .mobile-sheet-header span {
+    color: #55707d;
+    letter-spacing: 0.04em;
+  }
+
+  .mobile-sheet-header h2 {
+    color: #17212b;
+    font-size: 20px;
+    letter-spacing: -0.02em;
+  }
+
+  .mobile-sheet-header button {
+    border: 0;
+    border-radius: 999px;
+    background: #e8eef1;
+    color: #405461;
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  .mobile-sheet label > span,
+  #telegram-tab label > span {
+    color: #52616d;
+    font-weight: 700;
+  }
+
+  .mobile-sheet input:not([type="checkbox"]),
+  .mobile-sheet select,
+  #telegram-tab input:not([type="checkbox"]),
+  #telegram-tab select {
+    height: 44px;
+    border-color: #d7dee5;
+    border-radius: 10px;
+    background: #fff;
+  }
+
+  .mobile-sheet .schedule-toggle,
+  #telegram-tab .schedule-toggle {
+    min-height: 54px;
+    padding: 0 13px;
+    border: 1px solid #e1e7eb;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .mobile-sheet .schedule-weekdays,
+  #telegram-tab .telegram-schedule-weekdays {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 5px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .mobile-sheet .schedule-weekdays label,
+  #telegram-tab .telegram-schedule-weekdays label {
+    position: relative;
+    justify-content: center;
+    min-width: 0;
+    height: 42px;
+    border: 1px solid #dbe3e7;
+    border-radius: 10px;
+    background: #fff;
+    color: #596b76;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .mobile-sheet .schedule-weekdays label:has(input:checked),
+  #telegram-tab .telegram-schedule-weekdays label:has(input:checked) {
+    border-color: #4b8095;
+    background: #e8f2f5;
+    color: #194b5e;
+  }
+
+  .mobile-sheet .schedule-weekdays label:has(input:focus-visible),
+  #telegram-tab .telegram-schedule-weekdays label:has(input:focus-visible) {
+    outline: 2px solid rgba(49, 93, 115, 0.25);
+    outline-offset: 2px;
+  }
+
+  .mobile-sheet .schedule-weekdays input,
+  #telegram-tab .telegram-schedule-weekdays input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+  }
+
+  .mobile-sheet .readonly-form,
+  #telegram-tab .readonly-form {
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid #e1e7eb;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .mobile-sheet .readonly-form > *,
+  #telegram-tab .readonly-form > * {
+    min-height: 42px;
+    padding: 9px 12px;
+    border-bottom: 1px solid #eef1f4;
+  }
+
+  .mobile-sheet .readonly-form > *:last-child,
+  #telegram-tab .readonly-form > *:last-child {
+    border-bottom: 0;
+  }
+
+  .mobile-sheet-actions {
+    position: sticky;
+    bottom: calc(-14px - env(safe-area-inset-bottom));
+    z-index: 2;
+    margin: 2px -16px 0;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid #e1e7eb;
+    background: rgba(247, 249, 250, 0.96);
+    backdrop-filter: blur(12px);
+  }
+
+  .mobile-sheet-actions button {
+    min-height: 46px;
+    border-radius: 11px;
+    font-weight: 700;
+  }
+
+  .mobile-sheet-actions button:last-child {
+    border-color: #cad5da;
+    background: #fff;
+    color: #315d73;
+  }
+
+  #telegram-tab {
+    padding-bottom: 10px;
+  }
+
+  #telegram-tab .panel {
+    overflow: hidden;
+    border-color: #e3e8ed;
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  }
+
+  #telegram-tab .panel-header {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 15px 16px;
+    border-bottom: 1px solid #e9edf0;
+    background: #fff;
+  }
+
+  #telegram-tab .panel-header h2 {
+    color: #17212b;
+    font-size: 19px;
+    letter-spacing: -0.02em;
+  }
+
+  #telegram-tab .panel-header span {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #edf4f6;
+    color: #315d73;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  #telegram-tab .settings-form {
+    gap: 13px;
+    padding: 14px;
+    background: #f7f9fa;
+  }
+
+  #telegram-tab .settings-section-title {
+    padding: 7px 2px 0;
+    color: #344854;
+    font-size: 14px;
+  }
+
+  #telegram-tab .checkbox-grid:not(.telegram-schedule-weekdays) {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    padding: 8px;
+    border-color: #e1e7eb;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  #telegram-tab .checkbox-grid:not(.telegram-schedule-weekdays) label {
+    min-height: 42px;
+    padding: 8px 9px;
+    border-radius: 9px;
+    background: #f8fafb;
+    color: #344854;
+    line-height: 1.35;
+  }
+
+  #telegram-tab .checkbox-grid:not(.telegram-schedule-weekdays) input {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    accent-color: #315d73;
+  }
+
+  #telegram-tab .form-actions {
+    position: sticky;
+    bottom: calc(57px + env(safe-area-inset-bottom));
+    z-index: 4;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 3px -6px 0;
+    padding: 10px 6px;
+    border-top: 1px solid #e1e7eb;
+    background: rgba(247, 249, 250, 0.96);
+    backdrop-filter: blur(12px);
+  }
+
+  #telegram-tab .form-actions button {
+    min-width: 0;
+    min-height: 44px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  #telegram-tab .form-actions button:not([type="submit"]) {
+    border-color: #c6d3d9;
+    background: #fff;
+    color: #315d73;
+  }
+
+  #telegram-message {
+    min-height: 0;
+    padding: 0 2px;
+  }
 }
