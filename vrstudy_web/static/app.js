@@ -1580,6 +1580,7 @@ function renderMobileVrOps() {
       ["종목", profile.symbol || "-"],
       ["차수/주차", `${current.cycle_no ?? detail.cycle_input?.cycle_no ?? "-"}차 ${current.week_no ?? detail.cycle_input?.week_no ?? "-"}주차`],
       ["V / Pool", `${number(current.v ?? detail.order_basis?.v)} / ${number(current.pool ?? detail.order_basis?.pool)}`],
+      ["수량", `${number(current.shares ?? detail.cycle_input?.shares, 0)}주`],
       ["수익률", pct(current.return_rate)],
     ], profile.calculation_paused ? "중단" : "운용"),
     mobileProfileCard("주문표", [
