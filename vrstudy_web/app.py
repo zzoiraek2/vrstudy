@@ -47,6 +47,7 @@ from .data import (
     put_vr_schedule,
     rename_infinite_web_profile,
     rename_vr_web_profile,
+    regenerate_vr_web_order_basis,
     run_due_market_data_refresh,
     run_due_infinite_schedules,
     run_due_telegram_schedules,
@@ -679,6 +680,14 @@ def api_vr_order_preview(
         sell_mode=payload.sell_mode,
         sell_row_count=payload.sell_row_count,
     )
+
+
+@app.post("/api/kiwoom/vr/{profile_name}/regenerate-order-basis")
+def api_vr_regenerate_order_basis(
+    profile_name: str,
+    username: str = Depends(current_username),
+) -> dict[str, object]:
+    return regenerate_vr_web_order_basis(username, profile_name)
 
 
 @app.post("/api/kiwoom/vr/{profile_name}/fill-history/{period_kind}")

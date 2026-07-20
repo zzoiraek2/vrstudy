@@ -1593,7 +1593,9 @@ function renderMobileVrOps() {
     ], detail.order_executable ? "실행 가능" : "확인"),
   ], "VR 데이터가 없습니다.");
   const executeButton = document.getElementById("mobile-vr-execute");
+  const regenerateButton = document.getElementById("mobile-vr-regenerate");
   const reorderButton = document.getElementById("mobile-vr-reorder");
+  if (regenerateButton) regenerateButton.disabled = !snapshots.length;
   if (executeButton) executeButton.disabled = !detail.order_executable;
   if (reorderButton) reorderButton.disabled = !detail.order_reorderable;
   renderMobileOrderResult("vr");
@@ -2362,6 +2364,37 @@ function confirmReorder(kind, detail) {
   return typed === "재주문";
 }
 
+function confirmVrOrderRegeneration(detail) {
+  const executionCount = (detail?.order_executions || []).filter((row) => row.status !== "failed").length;
+  const lines = [
+    "최신 체결내역과 배당금을 다시 조회해 VR 주문표를 재생성할까요?",
+    "보유수량과 매매액을 다시 계산하지만 실제 주문 API는 호출하지 않습니다.",
+  ];
+  if (executionCount) {
+    lines.push(
+      "",
+      `오늘 주문실행 이력 ${executionCount}건이 있습니다.`,
+      "주문표만 변경되며 이미 전송된 주문은 취소되거나 변경되지 않습니다.",
+    );
+  }
+  return window.confirm(lines.join("\n"));
+}
+
+async function regenerateVrOrderBasis() {
+  const profile = state.selectedVr;
+  if (!profile || !state.vrDetail || !confirmVrOrderRegeneration(state.vrDetail)) return;
+  try {
+    text("vr-order-message", "VR 주문표 재생성 중...");
+    const result = await api(`/api/kiwoom/vr/${encodeURIComponent(profile)}/regenerate-order-basis`, {
+      method: "POST",
+      body: "{}",
+    });
+    await refreshDetailAfterOrder("vr", profile, "vr-order-message", result);
+  } catch (error) {
+    setOrderResult("vr", { ok: false, message: `VR 주문표 재생성 실패: ${error.message}` });
+  }
+}
+
 async function executeVrOrders(forceReorder = false) {
   const profile = state.selectedVr;
   if (!profile) return;
@@ -2647,6 +2680,8 @@ async function loadVrDetail(profileName) {
   await loadVrSchedule(profileName);
   const vrOrderButton = document.getElementById("vr-execute-orders");
   if (vrOrderButton) vrOrderButton.disabled = !detail.order_executable;
+  const vrRegenerateButton = document.getElementById("vr-regenerate-orders");
+  if (vrRegenerateButton) vrRegenerateButton.disabled = !(detail.snapshots || []).length;
   const vrReorderButton = document.getElementById("vr-reorder-orders");
   if (vrReorderButton) vrReorderButton.disabled = !detail.order_reorderable;
   if (state.vrOrderResult) {
@@ -3010,8 +3045,10 @@ document.getElementById("infinite-balance-call").addEventListener("click", looku
 document.getElementById("vr-fill-previous").addEventListener("click", () => lookupVrFillHistory("previous"));
 document.getElementById("vr-fill-current").addEventListener("click", () => lookupVrFillHistory("current"));
 document.getElementById("vr-execute-orders").addEventListener("click", () => executeVrOrders(false));
+document.getElementById("vr-regenerate-orders").addEventListener("click", regenerateVrOrderBasis);
 document.getElementById("vr-reorder-orders").addEventListener("click", () => executeVrOrders(true));
 document.getElementById("mobile-vr-execute").addEventListener("click", () => executeVrOrders(false));
+document.getElementById("mobile-vr-regenerate").addEventListener("click", regenerateVrOrderBasis);
 document.getElementById("mobile-vr-reorder").addEventListener("click", () => executeVrOrders(true));
 document.getElementById("vr-sell-order-mode").addEventListener("change", updateVrSellOrderMode);
 document.getElementById("vr-sell-order-count").addEventListener("input", () => {

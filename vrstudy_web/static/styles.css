@@ -506,6 +506,10 @@ input[readonly]:focus,
   flex: 1 1 120px;
 }
 
+#mobile-vr-screen .mobile-primary-actions button {
+  flex-basis: 100px;
+}
+
 .mobile-primary-actions button:first-child:not(:disabled) {
   border-color: var(--accent-dark);
   background: var(--accent);

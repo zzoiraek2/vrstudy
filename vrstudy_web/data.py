@@ -3221,9 +3221,7 @@ def _build_vr_period_preview(
     )
     base_qty = int(base_holding_qty) if base_holding_qty is not None else holding_qty
     period_end_holding_qty = (
-        base_qty
-        + int(current_order_summary["buy_qty"])
-        - int(current_order_summary["sell_qty"])
+        base_qty + int(order_summary["buy_qty"]) - int(order_summary["sell_qty"])
     )
     return {
         "result_sell_qty": order_summary["sell_qty"],
@@ -3276,18 +3274,18 @@ def lookup_vr_period_preview(username: str, profile_name: str) -> dict[str, Any]
             stk_cd=symbol,
             oppo_trde_tp="%",
         )
-        latest_snapshot = None
+        base_snapshot = None
         con = _connect_readonly(user_db_path(username))
         if con is not None:
             try:
                 if "rebalance_snapshots" in _tables(con):
-                    latest_snapshot = latest_cycle_snapshot(con, profile.name)
+                    base_snapshot = snapshot_for_cycle(con, profile.name, cycle_no - 1)
             finally:
                 con.close()
         base_holding_qty = (
-            int(latest_snapshot["shares"])
-            if latest_snapshot and latest_snapshot.get("shares") is not None
-            else None
+            int(base_snapshot["shares"])
+            if base_snapshot and base_snapshot.get("shares") is not None
+            else int(profile.initial_shares or 0)
         )
         preview = _build_vr_period_preview(
             symbol,
@@ -3296,6 +3294,7 @@ def lookup_vr_period_preview(username: str, profile_name: str) -> dict[str, Any]
             current_orders,
             base_holding_qty,
         )
+        result_fills = _vr_fill_history_rows(_result_rows(orders), symbol)
         current_fills = _vr_fill_history_rows(_result_rows(current_orders), symbol)
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
         return {
@@ -3314,12 +3313,13 @@ def lookup_vr_period_preview(username: str, profile_name: str) -> dict[str, Any]
                 "end_date": current_dates.result_end.isoformat(),
                 "query_end_date": current_end_day.isoformat(),
             },
-            "base_result_cycle_no": int(latest_snapshot["cycle_no"])
-            if latest_snapshot and latest_snapshot.get("cycle_no") is not None
+            "base_result_cycle_no": int(base_snapshot["cycle_no"])
+            if base_snapshot and base_snapshot.get("cycle_no") is not None
             else None,
             "token_renewed": renewed,
             "preview": preview,
-            "fills": current_fills,
+            "fills": result_fills,
+            "current_fills": current_fills,
             "message": (
                 f"조회 성공: {symbol} / 기준일 {query_day} / "
                 f"대상 {dates.result_start}~{dates.result_end} / {token_state}"
@@ -3426,28 +3426,40 @@ def _auto_create_vr_order_basis(
     token: Any,
     stex_tp: str,
     query_day: date,
+    force_recreate: bool = False,
 ) -> dict[str, Any]:
     profile = _profile_from_data(_read_profile_file(user_data_dir(username), "vr", profile_name))
     basis = _vr_order_basis_for_today(username, profile, query_day)
-    if _vr_basis_covers_day(basis, query_day):
+    if not force_recreate and _vr_basis_covers_day(basis, query_day):
         return {
             "status": "skipped",
             "message": "이미 오늘 실행 가능한 주문표가 있습니다.",
             "dividend_result": {"status": "skipped", "amount": 0.0, "message": "해당없음"},
         }
 
+    cycle_no, dates = _latest_completed_vr_result_period(profile, query_day)
     defaults = _vr_cycle_input_defaults_for_auto(username, profile)
-    if not defaults.get("allowed"):
-        raise ValueError("아직 입력 가능한 VR 차수가 아니거나 계산이 중단된 프로필입니다.")
-    close_price = _clean_float(defaults.get("close_price"))
+    existing_snapshot = None
+    con = _connect_readonly(user_db_path(username))
+    if con is not None:
+        try:
+            existing_snapshot = snapshot_for_cycle(con, profile.name, cycle_no)
+        finally:
+            con.close()
+    if existing_snapshot is None:
+        if not defaults.get("allowed"):
+            raise ValueError("아직 입력 가능한 VR 차수가 아니거나 계산이 중단된 프로필입니다.")
+        if int(defaults.get("cycle_no") or -1) != cycle_no:
+            raise ValueError(
+                f"자동 생성 대상 차수가 맞지 않습니다. 입력대상 {defaults.get('cycle_no')}차 / 조회대상 {cycle_no}차"
+            )
+    elif not force_recreate:
+        raise ValueError(f"{cycle_no}차 주문표가 이미 생성되어 있습니다.")
+
+    calculation_defaults = existing_snapshot or defaults
+    close_price = _clean_float(calculation_defaults.get("close_price"))
     if close_price <= 0:
         raise ValueError("주문표 자동 생성에 필요한 종가가 없습니다.")
-
-    cycle_no, dates = _latest_completed_vr_result_period(profile, query_day)
-    if int(defaults.get("cycle_no") or -1) != cycle_no:
-        raise ValueError(
-            f"자동 생성 대상 차수가 맞지 않습니다. 입력대상 {defaults.get('cycle_no')}차 / 조회대상 {cycle_no}차"
-        )
 
     period_preview = lookup_vr_period_preview(username, profile_name)
     if not period_preview.get("ok"):
@@ -3473,8 +3485,8 @@ def _auto_create_vr_order_basis(
             "message": f"조회실패: {exc}",
         }
 
-    buy_amount = _clean_float(preview.get("buy_amount"))
-    sell_amount = _clean_float(preview.get("sell_amount"))
+    buy_amount = _clean_float(preview.get("result_buy_amount"))
+    sell_amount = _clean_float(preview.get("result_sell_amount"))
     dividend = float(dividend_result.get("amount") or 0.0)
     payload = {
         "cycle_no": cycle_no,
@@ -3482,17 +3494,24 @@ def _auto_create_vr_order_basis(
         "trade_amount": round(sell_amount - buy_amount, 4),
         "shares": shares,
         "dividend": dividend,
-        "contribution_amount": defaults.get("contribution_amount") or 0,
-        "g_config": defaults.get("g_config") or "",
-        "g_start_cycle_no": defaults.get("g_start_cycle_no") or profile.start_week_no,
-        "buy_limit_config": defaults.get("buy_limit_config") or "",
-        "buy_limit_start_week_no": defaults.get("buy_limit_start_week_no") or 2,
+        "contribution_amount": calculation_defaults.get("contribution")
+        if existing_snapshot
+        else defaults.get("contribution_amount") or 0,
+        "g_config": calculation_defaults.get("g_config") or "",
+        "g_start_cycle_no": calculation_defaults.get("g_start_cycle_no")
+        or profile.start_week_no,
+        "buy_limit_config": calculation_defaults.get("buy_limit_config") or "",
+        "buy_limit_start_week_no": calculation_defaults.get("buy_limit_start_week_no") or 2,
     }
     detail = save_vr_web_cycle_input(username, profile_name, payload)
     cycle_save = detail.get("cycle_save") or {}
     return {
         "status": "success",
-        "message": str(cycle_save.get("message") or "주문표 생성 완료"),
+        "message": (
+            "주문표 재생성 완료"
+            if force_recreate
+            else str(cycle_save.get("message") or "주문표 생성 완료")
+        ),
         "cycle_no": cycle_no,
         "snapshot_id": cycle_save.get("snapshot_id"),
         "payload": payload,
@@ -3850,9 +3869,11 @@ def execute_vr_schedule_generate_and_orders(
     return _with_api_order_result_telegram(username, "vr", profile_name, result)
 
 
-def execute_vr_schedule_generate_only(
+def generate_vr_web_order_basis(
     username: str,
     profile_name: str,
+    *,
+    force_recreate: bool = False,
 ) -> dict[str, Any]:
     credentials = load_kiwoom_credentials("vr", profile_name, kiwoom_credentials_path(username))
     profile = _profile_from_data(_read_profile_file(user_data_dir(username), "vr", profile_name))
@@ -3873,6 +3894,7 @@ def execute_vr_schedule_generate_only(
             token=token,
             stex_tp=stex_tp,
             query_day=query_day,
+            force_recreate=force_recreate,
         )
         dividend_result = dict(created.get("dividend_result") or dividend_result)
         plan_result = {
@@ -3884,7 +3906,7 @@ def execute_vr_schedule_generate_only(
         result = {
             "ok": True,
             "message": str(created.get("message") or "VR 주문표 생성 완료"),
-            "schedule_mode": "generate_only",
+            "schedule_mode": "regenerate_only" if force_recreate else "generate_only",
             "order_datetime": order_datetime,
             "order_plan_result": plan_result,
             "dividend_result": dividend_result,
@@ -3892,7 +3914,11 @@ def execute_vr_schedule_generate_only(
             "deducted": [],
             "order_attempt_result": {
                 "status": "not_run",
-                "message": "주문표 생성 전용 모드: 주문실행 미실시",
+                "message": (
+                    "주문표 재생성: 주문실행 미실시"
+                    if force_recreate
+                    else "주문표 생성 전용 모드: 주문실행 미실시"
+                ),
             },
             "order_executions": [],
         }
@@ -3900,7 +3926,7 @@ def execute_vr_schedule_generate_only(
         result = {
             "ok": False,
             "message": f"VR 주문표 생성 실패: {exc}",
-            "schedule_mode": "generate_only",
+            "schedule_mode": "regenerate_only" if force_recreate else "generate_only",
             "order_datetime": order_datetime,
             "order_plan_result": {"status": "failed", "message": str(exc)},
             "dividend_result": dividend_result,
@@ -3913,6 +3939,38 @@ def execute_vr_schedule_generate_only(
             "order_executions": [],
         }
     return _with_api_order_result_telegram(username, "vr", profile_name, result)
+
+
+def execute_vr_schedule_generate_only(
+    username: str,
+    profile_name: str,
+) -> dict[str, Any]:
+    return generate_vr_web_order_basis(username, profile_name)
+
+
+def regenerate_vr_web_order_basis(
+    username: str,
+    profile_name: str,
+) -> dict[str, Any]:
+    execution_count = 0
+    con = _connect_readonly(user_db_path(username))
+    if con is not None:
+        try:
+            execution_count = _successful_order_execution_count(
+                con,
+                "vr",
+                profile_name,
+                date.today(),
+            )
+        finally:
+            con.close()
+    result = generate_vr_web_order_basis(
+        username,
+        profile_name,
+        force_recreate=True,
+    )
+    result["existing_order_execution_count"] = execution_count
+    return result
 
 
 def execute_infinite_web_orders(

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VR Study Web</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260714_mobile_auto_profile" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260720_vr_regenerate" />
   </head>
   <body>
     <main class="shell">
@@ -253,6 +253,7 @@
             <div id="mobile-vr-cards-main" class="mobile-card-list"></div>
             <div class="mobile-action-row mobile-primary-actions">
               <button id="mobile-vr-execute" type="button">주문실행</button>
+              <button id="mobile-vr-regenerate" type="button">주문표 재생성</button>
               <button id="mobile-vr-reorder" type="button">재주문</button>
             </div>
             <div id="mobile-vr-result" class="mobile-card-list"></div>
@@ -446,6 +447,7 @@
                 <section class="panel order-split-panel">
                   <div class="panel-header">
                     <h2>매수/매도점</h2>
+                    <button id="vr-regenerate-orders" type="button" disabled>주문표 재생성</button>
                     <button id="vr-reorder-orders" type="button" disabled>재주문</button>
                     <button id="vr-execute-orders" type="button" disabled>주문실행</button>
                   </div>
@@ -971,6 +973,6 @@
         </form>
       </section>
     </div>
-    <script src="/assets/app.js?v=20260720_vr_generate_only"></script>
+    <script src="/assets/app.js?v=20260720_vr_regenerate"></script>
   </body>
 </html>

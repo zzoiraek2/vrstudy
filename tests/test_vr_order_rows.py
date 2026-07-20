@@ -1,9 +1,11 @@
 import unittest
 from datetime import date, datetime
+from unittest.mock import patch
 
 import duckdb
 
 from vrstudy_web import data
+from vrstudy.profiles import Profile
 from vrstudy_web.data import (
     _build_vr_period_preview,
     _filter_vr_sell_order_rows,
@@ -55,25 +57,23 @@ class VrOrderRowsTest(unittest.TestCase):
 
         self.assertEqual(_vr_match_buy_order_count(rows), 8)
 
-    def test_vr_period_preview_projects_from_latest_result_holding(self):
+    def test_vr_period_preview_projects_completed_period_fills_from_base_holding(self):
         preview = _build_vr_period_preview(
             "TQQQ",
-            {"result_list": []},
-            {"result_list": [{"stk_cd": "TQQQ", "poss_qty": "000000000065"}]},
             {"result_list": [_api_order("TQQQ", "buy", 2)]},
+            {"result_list": [{"stk_cd": "TQQQ", "poss_qty": "000000000065"}]},
+            {"result_list": []},
             65,
         )
 
         self.assertEqual(preview["base_holding_qty"], 65)
-        self.assertEqual(preview["buy_qty"], 2)
-        self.assertEqual(preview["sell_qty"], 0)
+        self.assertEqual(preview["result_buy_qty"], 2)
+        self.assertEqual(preview["result_sell_qty"], 0)
         self.assertEqual(preview["period_end_holding_qty"], 67)
 
     def test_vr_period_preview_uses_only_actual_fills_for_quantity_and_amount(self):
         preview = _build_vr_period_preview(
             "TQQQ",
-            {"result_list": []},
-            {"result_list": [{"stk_cd": "TQQQ", "poss_qty": "000000000390"}]},
             {
                 "result_list": [
                     {
@@ -99,14 +99,85 @@ class VrOrderRowsTest(unittest.TestCase):
                     },
                 ]
             },
+            {"result_list": [{"stk_cd": "TQQQ", "poss_qty": "000000000390"}]},
+            {"result_list": []},
             358,
         )
 
-        self.assertEqual(preview["buy_qty"], 32)
-        self.assertEqual(preview["sell_qty"], 0)
-        self.assertEqual(preview["buy_amount"], "1768")
-        self.assertEqual(preview["sell_amount"], "0")
+        self.assertEqual(preview["result_buy_qty"], 32)
+        self.assertEqual(preview["result_sell_qty"], 0)
+        self.assertEqual(preview["result_buy_amount"], "1768")
+        self.assertEqual(preview["result_sell_amount"], "0")
         self.assertEqual(preview["period_end_holding_qty"], 390)
+
+    def test_vr_force_regeneration_saves_completed_period_quantity_and_trade_amount(self):
+        profile = Profile(name="VR-TQQQ", start_date="2026-03-16", start_week_no=236)
+        saved_payloads: list[dict] = []
+        existing_snapshot = {
+            "cycle_no": 8,
+            "close_price": 85.0,
+            "contribution": 0.0,
+            "g_config": "15,26,1",
+            "g_start_cycle_no": 236,
+            "buy_limit_config": "25%,26,0%",
+            "buy_limit_start_week_no": 2,
+        }
+
+        class DummyConnection:
+            def close(self):
+                return None
+
+        def save_cycle(username, profile_name, payload):
+            saved_payloads.append(dict(payload))
+            return {
+                "cycle_save": {
+                    "snapshot_id": 999,
+                    "message": "재계산 완료",
+                }
+            }
+
+        with (
+            patch.object(data, "_read_profile_file", return_value={}),
+            patch.object(data, "_profile_from_data", return_value=profile),
+            patch.object(data, "_vr_order_basis_for_today", return_value={}),
+            patch.object(data, "_vr_cycle_input_defaults_for_auto", return_value={"allowed": False}),
+            patch.object(data, "_connect_readonly", return_value=DummyConnection()),
+            patch.object(data, "snapshot_for_cycle", return_value=existing_snapshot),
+            patch.object(
+                data,
+                "lookup_vr_period_preview",
+                return_value={
+                    "ok": True,
+                    "preview": {
+                        "period_end_holding_qty": 390,
+                        "result_buy_amount": "1768",
+                        "result_sell_amount": "0",
+                    },
+                    "fills": [{"side": "buy", "quantity": 32, "price": 55.25}],
+                },
+            ),
+            patch.object(
+                data,
+                "_lookup_vr_dividend_summary",
+                return_value={"status": "none", "amount": 0.0, "message": "해당없음"},
+            ),
+            patch.object(data, "save_vr_web_cycle_input", side_effect=save_cycle),
+        ):
+            result = data._auto_create_vr_order_basis(
+                "user",
+                "VR-TQQQ",
+                credentials=object(),
+                token=object(),
+                stex_tp="NASD",
+                query_day=date(2026, 7, 20),
+                force_recreate=True,
+            )
+
+        self.assertEqual(len(saved_payloads), 1)
+        self.assertEqual(saved_payloads[0]["cycle_no"], 8)
+        self.assertEqual(saved_payloads[0]["shares"], 390)
+        self.assertEqual(saved_payloads[0]["trade_amount"], -1768.0)
+        self.assertEqual(result["message"], "주문표 재생성 완료")
 
     def test_vr_dividend_summary_uses_foreign_settlement_amount(self):
         summary = _summarize_vr_dividends(
