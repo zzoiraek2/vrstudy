@@ -69,6 +69,45 @@ class VrOrderRowsTest(unittest.TestCase):
         self.assertEqual(preview["sell_qty"], 0)
         self.assertEqual(preview["period_end_holding_qty"], 67)
 
+    def test_vr_period_preview_uses_only_actual_fills_for_quantity_and_amount(self):
+        preview = _build_vr_period_preview(
+            "TQQQ",
+            {"result_list": []},
+            {"result_list": [{"stk_cd": "TQQQ", "poss_qty": "000000000390"}]},
+            {
+                "result_list": [
+                    {
+                        "stk_cd": "TQQQ",
+                        "slby_tp": "2",
+                        "ord_qty": "32",
+                        "cntr_qty": "",
+                        "ord_uv": "50.00",
+                    },
+                    {
+                        "stk_cd": "TQQQ",
+                        "slby_tp": "1",
+                        "ord_qty": "32",
+                        "cntr_qty": "0",
+                        "ord_uv": "70.00",
+                    },
+                    {
+                        "stk_cd": "TQQQ",
+                        "slby_tp": "2",
+                        "ord_qty": "32",
+                        "cntr_qty": "32",
+                        "cntr_pric": "55.25",
+                    },
+                ]
+            },
+            358,
+        )
+
+        self.assertEqual(preview["buy_qty"], 32)
+        self.assertEqual(preview["sell_qty"], 0)
+        self.assertEqual(preview["buy_amount"], "1768")
+        self.assertEqual(preview["sell_amount"], "0")
+        self.assertEqual(preview["period_end_holding_qty"], 390)
+
     def test_vr_dividend_summary_uses_foreign_settlement_amount(self):
         summary = _summarize_vr_dividends(
             [

@@ -831,8 +831,10 @@ function renderMobileScheduleSheet(kind) {
   if (modeField) modeField.hidden = false;
   if (form.elements.mode) {
     const afterInputOption = form.elements.mode.querySelector('option[value="after_input"]');
+    const generateOnlyOption = form.elements.mode.querySelector('option[value="generate_only"]');
     const generateOption = form.elements.mode.querySelector('option[value="generate_and_orders"]');
     if (afterInputOption) afterInputOption.hidden = isVr;
+    if (generateOnlyOption) generateOnlyOption.hidden = !isVr;
     if (generateOption) generateOption.hidden = !isVr;
     form.elements.mode.value = schedule.mode || (isVr ? "orders_only" : "after_input");
   }
@@ -1707,7 +1709,11 @@ function renderMobileAutomation() {
       state.vrSchedule,
       state.selectedVr,
       state.vrProfiles,
-      state.vrSchedule?.mode === "generate_and_orders" ? "주문표 생성 및 주문실행" : "주문실행",
+      state.vrSchedule?.mode === "generate_only"
+        ? "주문표 생성"
+        : state.vrSchedule?.mode === "generate_and_orders"
+          ? "주문표 생성 및 주문실행"
+          : "주문실행",
     ),
     mobileScheduleCard(
       "infinite",

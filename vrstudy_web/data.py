@@ -773,11 +773,13 @@ def _validate_schedule_mode(value: Any) -> str:
 
 def _validate_vr_schedule_mode(value: Any) -> str:
     mode = str(value or "orders_only").strip()
-    if mode in {"orders_only", "generate_and_orders"}:
+    if mode in {"orders_only", "generate_only", "generate_and_orders"}:
         return mode
     if mode == "after_input":
         return "generate_and_orders"
-    raise ValueError("VR 스케줄 동작은 주문실행 또는 주문표 생성 및 주문실행 중 하나여야 합니다.")
+    raise ValueError(
+        "VR 스케줄 동작은 주문실행, 주문표 생성 또는 주문표 생성 및 주문실행 중 하나여야 합니다."
+    )
 
 
 def _read_infinite_schedule(username: str, profile_name: str) -> dict[str, Any]:
@@ -984,12 +986,13 @@ def _order_contract_quantity(row: dict) -> int:
 
 
 def _order_filled_amount(row: dict) -> float:
-    amount_text = str(row.get("cntr_amt") or "").strip()
-    amount = _clean_float(amount_text)
-    if amount_text and amount != 0:
+    amount = _clean_float(_first_row_value(row, "cntr_amt", "exec_amt", "trde_amt"))
+    if amount != 0:
         return abs(amount)
-    qty = _order_filled_quantity(row)
-    price = _clean_float(row.get("cntr_uv"))
+    qty = _order_contract_quantity(row)
+    price = _clean_float(
+        _first_row_value(row, "cntr_uv", "cntr_pric", "avg_pric", "ord_uv")
+    )
     return abs(qty * price)
 
 
@@ -1105,7 +1108,9 @@ def _summarize_order_period(rows: list[dict], symbol: str) -> dict[str, Any]:
         row_symbol = str(row.get("stk_cd") or "").upper()
         if row_symbol and row_symbol != symbol:
             continue
-        qty = _order_filled_quantity(row)
+        qty = _order_contract_quantity(row)
+        if qty <= 0:
+            continue
         amount = _order_filled_amount(row)
         side = _order_side(row)
         if side == "buy":
@@ -3291,6 +3296,7 @@ def lookup_vr_period_preview(username: str, profile_name: str) -> dict[str, Any]
             current_orders,
             base_holding_qty,
         )
+        current_fills = _vr_fill_history_rows(_result_rows(current_orders), symbol)
         token_state = "토큰 자동발급" if renewed else "저장 토큰 사용"
         return {
             "ok": True,
@@ -3313,6 +3319,7 @@ def lookup_vr_period_preview(username: str, profile_name: str) -> dict[str, Any]
             else None,
             "token_renewed": renewed,
             "preview": preview,
+            "fills": current_fills,
             "message": (
                 f"조회 성공: {symbol} / 기준일 {query_day} / "
                 f"대상 {dates.result_start}~{dates.result_end} / {token_state}"
@@ -3490,6 +3497,7 @@ def _auto_create_vr_order_basis(
         "snapshot_id": cycle_save.get("snapshot_id"),
         "payload": payload,
         "period_preview": preview,
+        "fills": list(period_preview.get("fills") or []),
         "dividend_result": dividend_result,
     }
 
@@ -3839,6 +3847,71 @@ def execute_vr_schedule_generate_and_orders(
         "dividend_result": dividend_result,
         "order_attempt_result": order_attempt_result,
     }
+    return _with_api_order_result_telegram(username, "vr", profile_name, result)
+
+
+def execute_vr_schedule_generate_only(
+    username: str,
+    profile_name: str,
+) -> dict[str, Any]:
+    credentials = load_kiwoom_credentials("vr", profile_name, kiwoom_credentials_path(username))
+    profile = _profile_from_data(_read_profile_file(user_data_dir(username), "vr", profile_name))
+    query_day = date.today()
+    order_datetime = _kst_now().strftime("%Y-%m-%d %H:%M:%S")
+    dividend_result: dict[str, Any] = {
+        "status": "skipped",
+        "amount": 0.0,
+        "message": "해당없음",
+    }
+    try:
+        token, _renewed = _ensure_user_kiwoom_token(username, "vr", profile_name, credentials)
+        stex_tp = _resolve_user_exchange_code(credentials, token, profile.symbol)
+        created = _auto_create_vr_order_basis(
+            username,
+            profile_name,
+            credentials=credentials,
+            token=token,
+            stex_tp=stex_tp,
+            query_day=query_day,
+        )
+        dividend_result = dict(created.get("dividend_result") or dividend_result)
+        plan_result = {
+            "status": str(created.get("status") or "success"),
+            "message": str(created.get("message") or ""),
+            "cycle_no": created.get("cycle_no"),
+            "snapshot_id": created.get("snapshot_id"),
+        }
+        result = {
+            "ok": True,
+            "message": str(created.get("message") or "VR 주문표 생성 완료"),
+            "schedule_mode": "generate_only",
+            "order_datetime": order_datetime,
+            "order_plan_result": plan_result,
+            "dividend_result": dividend_result,
+            "fills": list(created.get("fills") or []),
+            "deducted": [],
+            "order_attempt_result": {
+                "status": "not_run",
+                "message": "주문표 생성 전용 모드: 주문실행 미실시",
+            },
+            "order_executions": [],
+        }
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "message": f"VR 주문표 생성 실패: {exc}",
+            "schedule_mode": "generate_only",
+            "order_datetime": order_datetime,
+            "order_plan_result": {"status": "failed", "message": str(exc)},
+            "dividend_result": dividend_result,
+            "fills": [],
+            "deducted": [],
+            "order_attempt_result": {
+                "status": "not_run",
+                "message": "주문표 생성 실패로 주문실행 미실시",
+            },
+            "order_executions": [],
+        }
     return _with_api_order_result_telegram(username, "vr", profile_name, result)
 
 
@@ -4582,7 +4655,10 @@ def run_due_vr_schedules(
             }
             _write_vr_schedule(username, profile_name, running)
             try:
-                if schedule.get("mode") == "generate_and_orders":
+                if schedule.get("mode") == "generate_only":
+                    result = execute_vr_schedule_generate_only(username, profile_name)
+                    result["schedule_mode"] = "generate_only"
+                elif schedule.get("mode") == "generate_and_orders":
                     result = execute_vr_schedule_generate_and_orders(username, profile_name)
                     result["schedule_mode"] = "generate_and_orders"
                 else:
@@ -4939,6 +5015,54 @@ def _order_plan_result_line(plan_result: dict[str, Any]) -> str:
     return f"- {message}"
 
 
+def _vr_fill_telegram_lines(result: dict[str, Any], limit: int) -> list[str]:
+    fills = [row for row in (result.get("fills") or []) if isinstance(row, dict)]
+    deducted = [row for row in (result.get("deducted") or []) if isinstance(row, dict)]
+    deducted_summary = _order_rows_side_summary(deducted, "deducted_quantity")
+    if not fills:
+        lines = ["3. 체결내역: 없음"]
+        if deducted:
+            lines.append(
+                "- 주문차감: "
+                f"매수 {deducted_summary['buy_count']}건/{deducted_summary['buy_qty']}주, "
+                f"매도 {deducted_summary['sell_count']}건/{deducted_summary['sell_qty']}주"
+            )
+        else:
+            lines.append("- 주문차감: 없음")
+        return lines
+
+    fill_summary = _order_rows_side_summary(fills)
+    lines = [
+        f"3. 체결내역: {len(fills)}건",
+        (
+            "- 체결요약: "
+            f"매수 {fill_summary['buy_count']}건/{fill_summary['buy_qty']}주, "
+            f"매도 {fill_summary['sell_count']}건/{fill_summary['sell_qty']}주"
+        ),
+    ]
+    for row in fills[:limit]:
+        trade_date = str(row.get("display_date") or row.get("date") or "-").strip()
+        side_label = str(row.get("side_label") or "").strip()
+        if not side_label:
+            side_label = {"buy": "매수", "sell": "매도"}.get(str(row.get("side") or ""), "-")
+        lines.append(
+            f"- {trade_date} {side_label} {_telegram_money(row.get('price'), 2)} "
+            f"/ {int(row.get('quantity') or 0)}주"
+        )
+    omitted = max(0, len(fills) - limit)
+    if omitted:
+        lines.append(f"- 체결내역 외 {omitted}건")
+    if deducted:
+        lines.append(
+            "- 주문차감: "
+            f"매수 {deducted_summary['buy_count']}건/{deducted_summary['buy_qty']}주, "
+            f"매도 {deducted_summary['sell_count']}건/{deducted_summary['sell_qty']}주"
+        )
+    else:
+        lines.append("- 주문차감: 없음")
+    return lines
+
+
 def _order_attempt_result_from_result(result: dict[str, Any]) -> dict[str, Any]:
     if "order_attempt_result" in result and isinstance(result.get("order_attempt_result"), dict):
         return result["order_attempt_result"]
@@ -4976,8 +5100,12 @@ def _send_api_order_result_telegram(
         f"주문일시: {result.get('order_datetime') or result.get('order_date') or '-'}",
     ]
     plan_result = result.get("order_plan_result")
-    if strategy == "vr" and result.get("schedule_mode") == "generate_and_orders":
-        plan = plan_result if isinstance(plan_result, dict) else {}
+    limit = _order_row_limit(settings)
+    if strategy == "vr":
+        plan = plan_result if isinstance(plan_result, dict) else {
+            "status": "not_run",
+            "message": "주문실행 모드: 기존 주문표 사용",
+        }
         dividend = result.get("dividend_result") if isinstance(result.get("dividend_result"), dict) else {}
         attempt_result = _order_attempt_result_from_result(result)
         plan_status = str(plan.get("status") or "")
@@ -4998,7 +5126,9 @@ def _send_api_order_result_telegram(
                 "",
                 f"2. 배당금: {dividend_text}",
                 "",
-                f"3. 주문결과: {_workflow_result_label(str(attempt_result.get('status') or ''))}",
+                *_vr_fill_telegram_lines(result, limit),
+                "",
+                f"4. 주문결과: {_workflow_result_label(str(attempt_result.get('status') or ''))}",
                 f"- {str(attempt_result.get('message') or '-').strip()}",
             ]
         )
@@ -5029,7 +5159,6 @@ def _send_api_order_result_telegram(
             for status, count in sorted(status_counts.items())
         )
         lines.append(f"요약: {summary}")
-    limit = _order_row_limit(settings)
     for row in executions[:limit]:
         price = "시장가" if row.get("price") in (None, "") else _telegram_money(row.get("price"), 2)
         order_no = row.get("order_no") or "-"
