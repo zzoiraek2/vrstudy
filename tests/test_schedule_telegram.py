@@ -357,21 +357,30 @@ class ScheduleTelegramTest(unittest.TestCase):
                         "side": "buy",
                         "side_label": "매수",
                         "price": 55.25,
+                        "order_price": 56.0,
+                        "execution_price": 55.25,
                         "quantity": 2,
+                        "amount": 110.5,
                     },
                     {
                         "display_date": "2026-07-18",
                         "side": "sell",
                         "side_label": "매도",
                         "price": 61.5,
+                        "order_price": 61.0,
+                        "execution_price": 61.5,
                         "quantity": 1,
+                        "amount": 61.5,
                     },
                     {
                         "display_date": "2026-07-19",
                         "side": "buy",
                         "side_label": "매수",
                         "price": 54.0,
+                        "order_price": 54.0,
+                        "execution_price": 54.0,
                         "quantity": 3,
+                        "amount": 162.0,
                     },
                 ],
                 "deducted": [
@@ -411,7 +420,10 @@ class ScheduleTelegramTest(unittest.TestCase):
         positions = [message.index(title) for title in section_titles]
         self.assertEqual(positions, sorted(positions))
         self.assertIn("- 체결요약: 매수 2건/5주, 매도 1건/1주", message)
-        self.assertIn("- 2026-07-17 매수 55.25 / 2주", message)
+        self.assertIn(
+            "- 2026-07-17 매수 원주문가 56 / 체결가 55.25 / 2주 / 매매액 110.5 USD",
+            message,
+        )
         self.assertIn("- 체결내역 외 1건", message)
         self.assertIn("- 주문차감: 매수 1건/2주, 매도 1건/1주", message)
 

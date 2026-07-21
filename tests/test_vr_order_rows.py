@@ -7,9 +7,12 @@ import duckdb
 from vrstudy_web import data
 from vrstudy.profiles import Profile
 from vrstudy_web.data import (
+    _apply_vr_fill_exclusions,
     _build_vr_period_preview,
     _filter_vr_sell_order_rows,
     _summarize_vr_dividends,
+    _vr_fill_history_rows,
+    _vr_fill_price_summary,
     _vr_match_buy_order_count,
 )
 
@@ -33,6 +36,73 @@ def _api_order(symbol: str, side: str, qty: int, price: float = 10.0) -> dict:
 
 
 class VrOrderRowsTest(unittest.TestCase):
+    def test_vr_fill_exclusion_uses_original_limit_price_not_execution_price(self):
+        fills = _vr_fill_history_rows(
+            [
+                {
+                    "stk_cd": "TQQQ",
+                    "slby_tp": "2",
+                    "ord_no": "000000123",
+                    "ord_qty": "4",
+                    "ord_uv": "70.0000",
+                    "cntr_qty": "4",
+                    "cntr_uv": "69.5000",
+                }
+            ],
+            "TQQQ",
+        )
+
+        self.assertEqual(fills[0]["order_price"], 70.0)
+        self.assertEqual(fills[0]["execution_price"], 69.5)
+        self.assertEqual(fills[0]["amount"], 278.0)
+
+        remaining, deducted, unmatched = _apply_vr_fill_exclusions(
+            [
+                {
+                    "side": "buy",
+                    "side_label": "매수",
+                    "price": 70.0,
+                    "price_key": "70.00",
+                    "quantity": 4,
+                }
+            ],
+            _vr_fill_price_summary(fills),
+        )
+
+        self.assertEqual(remaining, [])
+        self.assertEqual(deducted[0]["deducted_quantity"], 4)
+        self.assertEqual(unmatched, [])
+
+    def test_vr_fill_exclusion_keeps_unfilled_quantity_after_price_improvement(self):
+        fills = _vr_fill_history_rows(
+            [
+                {
+                    "stk_cd": "TQQQ",
+                    "slby_tp": "1",
+                    "ord_uv": "100.0000",
+                    "cntr_qty": "2",
+                    "cntr_uv": "100.5000",
+                }
+            ],
+            "TQQQ",
+        )
+        remaining, deducted, unmatched = _apply_vr_fill_exclusions(
+            [
+                {
+                    "side": "sell",
+                    "side_label": "매도",
+                    "price": 100.0,
+                    "price_key": "100.00",
+                    "quantity": 4,
+                }
+            ],
+            _vr_fill_price_summary(fills),
+        )
+
+        self.assertEqual(remaining[0]["quantity"], 2)
+        self.assertEqual(deducted[0]["deducted_quantity"], 2)
+        self.assertEqual(unmatched, [])
+
     def test_match_buy_limits_sell_rows_to_buy_row_count(self):
         rows = [_row("buy", index) for index in range(1, 4)]
         rows.extend(_row("sell", index) for index in range(1, 8))

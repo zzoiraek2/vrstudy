@@ -1161,14 +1161,22 @@ def _vr_fill_history_rows(rows: list[dict], symbol: str) -> list[dict]:
         side = _order_side(row)
         if side not in {"buy", "sell"}:
             continue
-        price = _clean_float(
-            _first_row_value(row, "cntr_uv", "cntr_pric", "avg_pric", "ord_uv")
+        order_price = _clean_float(_first_row_value(row, "ord_uv", "ord_pric"))
+        execution_price = _clean_float(
+            _first_row_value(row, "cntr_uv", "cntr_pric", "avg_pric")
         )
+        if order_price == 0:
+            order_price = execution_price
+        if execution_price == 0:
+            execution_price = order_price
         amount = _clean_float(_first_row_value(row, "cntr_amt", "exec_amt", "trde_amt"))
-        if amount == 0 and price:
-            amount = quantity * price
+        if amount == 0 and execution_price:
+            amount = quantity * execution_price
         trade_date = str(_first_row_value(row, "cntr_dt", "ord_dt", "trde_dt") or "").strip()
-        order_no = str(_first_row_value(row, "ord_no", "odno", "orgn_ord_no") or "").strip()
+        order_no = str(_first_row_value(row, "ord_no", "odno") or "").strip()
+        original_order_no = str(
+            _first_row_value(row, "orig_ord_no", "orgn_ord_no") or ""
+        ).strip()
         order_quantity = _clean_int(row.get("ord_qty"))
         status = str(
             _first_row_value(
@@ -1187,11 +1195,17 @@ def _vr_fill_history_rows(rows: list[dict], symbol: str) -> list[dict]:
                 "display_date": _format_api_date(trade_date),
                 "side": side,
                 "side_label": "매수" if side == "buy" else "매도",
-                "price": price,
-                "price_key": f"{round(price, 2):.2f}" if price else "",
+                # price remains the actual execution price for existing consumers.
+                "price": execution_price,
+                "order_price": order_price,
+                "execution_price": execution_price,
+                # VR order-table exclusion must use the submitted limit price, not
+                # the possibly price-improved execution price.
+                "price_key": _price_key(order_price),
                 "quantity": quantity,
                 "amount": abs(amount),
                 "order_no": order_no,
+                "original_order_no": original_order_no,
                 "order_quantity": order_quantity,
                 "status": status,
             }
@@ -1201,7 +1215,7 @@ def _vr_fill_history_rows(rows: list[dict], symbol: str) -> list[dict]:
         key=lambda item: (
             str(item.get("date") or ""),
             str(item.get("side") or ""),
-            float(item.get("price") or 0),
+            float(item.get("order_price") or item.get("price") or 0),
             str(item.get("order_no") or ""),
         ),
     )
@@ -1218,7 +1232,8 @@ def _vr_fill_price_summary(fill_rows: list[dict]) -> list[dict]:
             {
                 "side": key[0],
                 "side_label": row.get("side_label") or "",
-                "price": row.get("price") or 0,
+                "price": row.get("order_price") or row.get("price") or 0,
+                "order_price": row.get("order_price") or row.get("price") or 0,
                 "quantity": 0,
                 "amount": 0.0,
             },
@@ -5132,8 +5147,11 @@ def _vr_fill_telegram_lines(result: dict[str, Any], limit: int) -> list[str]:
         if not side_label:
             side_label = {"buy": "매수", "sell": "매도"}.get(str(row.get("side") or ""), "-")
         lines.append(
-            f"- {trade_date} {side_label} {_telegram_money(row.get('price'), 2)} "
-            f"/ {int(row.get('quantity') or 0)}주"
+            f"- {trade_date} {side_label} "
+            f"원주문가 {_telegram_money(row.get('order_price', row.get('price')), 2)} "
+            f"/ 체결가 {_telegram_money(row.get('execution_price', row.get('price')), 2)} "
+            f"/ {int(row.get('quantity') or 0)}주 "
+            f"/ 매매액 {_telegram_money(row.get('amount'), 2)} USD"
         )
     omitted = max(0, len(fills) - limit)
     if omitted:

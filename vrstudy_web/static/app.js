@@ -355,10 +355,11 @@ function scheduleVrOrderPanelHeightSync() {
 }
 
 function renderVrFillHistory(fills) {
-  rows("vr-fill-history", fills || [], 5, (row) => [
+  rows("vr-fill-history", fills || [], 6, (row) => [
     row.display_date || row.date,
     row.side_label,
-    number(row.price),
+    number(row.order_price ?? row.price),
+    number(row.execution_price ?? row.price),
     number(row.quantity, 0),
     number(row.amount),
   ]);
@@ -2700,7 +2701,7 @@ async function loadVrDetail(profileName) {
     activateOrderPanel("vr", "vr-order-plan-panel");
     text("vr-order-message", detail.order_message || "");
   }
-  renderEmpty(document.getElementById("vr-fill-history"), 5);
+  renderEmpty(document.getElementById("vr-fill-history"), 6);
   text("vr-fill-message", "");
   renderMobileVrOps();
 }
