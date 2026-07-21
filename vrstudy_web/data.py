@@ -773,12 +773,18 @@ def _validate_schedule_mode(value: Any) -> str:
 
 def _validate_vr_schedule_mode(value: Any) -> str:
     mode = str(value or "orders_only").strip()
-    if mode in {"orders_only", "generate_only", "generate_and_orders"}:
+    if mode in {
+        "orders_only",
+        "generate_only",
+        "generate_or_orders",
+        "generate_and_orders",
+    }:
         return mode
     if mode == "after_input":
         return "generate_and_orders"
     raise ValueError(
-        "VR 스케줄 동작은 주문실행, 주문표 생성 또는 주문표 생성 및 주문실행 중 하나여야 합니다."
+        "VR 스케줄 동작은 주문실행, 주문표 생성, 주문표 생성 또는 주문실행, "
+        "주문표 생성 및 주문실행 중 하나여야 합니다."
     )
 
 
@@ -3948,6 +3954,25 @@ def execute_vr_schedule_generate_only(
     return generate_vr_web_order_basis(username, profile_name)
 
 
+def execute_vr_schedule_generate_or_orders(
+    username: str,
+    profile_name: str,
+) -> dict[str, Any]:
+    profile = _profile_from_data(
+        _read_profile_file(user_data_dir(username), "vr", profile_name)
+    )
+    query_day = date.today()
+    basis = _vr_order_basis_for_today(username, profile, query_day)
+    if _vr_basis_covers_day(basis, query_day):
+        result = execute_vr_web_orders(username, profile_name)
+        result["schedule_action"] = "orders_only"
+    else:
+        result = execute_vr_schedule_generate_only(username, profile_name)
+        result["schedule_action"] = "generate_only"
+    result["schedule_mode"] = "generate_or_orders"
+    return result
+
+
 def regenerate_vr_web_order_basis(
     username: str,
     profile_name: str,
@@ -4716,6 +4741,9 @@ def run_due_vr_schedules(
                 if schedule.get("mode") == "generate_only":
                     result = execute_vr_schedule_generate_only(username, profile_name)
                     result["schedule_mode"] = "generate_only"
+                elif schedule.get("mode") == "generate_or_orders":
+                    result = execute_vr_schedule_generate_or_orders(username, profile_name)
+                    result["schedule_mode"] = "generate_or_orders"
                 elif schedule.get("mode") == "generate_and_orders":
                     result = execute_vr_schedule_generate_and_orders(username, profile_name)
                     result["schedule_mode"] = "generate_and_orders"

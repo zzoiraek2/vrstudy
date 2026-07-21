@@ -1,5 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from vrstudy.telegram import TelegramSettings
 from vrstudy_web.app import VrScheduleRequest
@@ -33,6 +35,20 @@ class ScheduleTelegramTest(unittest.TestCase):
 
         self.assertEqual(payload.model_dump()["mode"], "generate_only")
         self.assertEqual(data._validate_vr_schedule_mode("generate_only"), "generate_only")
+
+    def test_vr_schedule_accepts_generate_or_orders_mode(self):
+        payload = VrScheduleRequest(
+            enabled=True,
+            time="15:55",
+            mode="generate_or_orders",
+            weekdays=[0, 1, 2],
+        )
+
+        self.assertEqual(payload.model_dump()["mode"], "generate_or_orders")
+        self.assertEqual(
+            data._validate_vr_schedule_mode("generate_or_orders"),
+            "generate_or_orders",
+        )
 
     def test_schedule_due_state_catches_up_only_within_window(self):
         kst = timezone(timedelta(hours=9))
@@ -196,6 +212,80 @@ class ScheduleTelegramTest(unittest.TestCase):
         self.assertEqual(generated, ["VR-TQQQ"])
         self.assertTrue(result[0]["ok"])
         self.assertEqual(result[0]["schedule_mode"], "generate_only")
+
+    def test_vr_generate_or_orders_runs_exactly_one_action(self):
+        profile = SimpleNamespace(name="VR-TQQQ")
+        for has_current_basis, expected_action in (
+            (False, "generate_only"),
+            (True, "orders_only"),
+        ):
+            generated: list[str] = []
+            executed: list[str] = []
+            with self.subTest(has_current_basis=has_current_basis):
+                with (
+                    patch.object(data, "_read_profile_file", return_value={}),
+                    patch.object(data, "_profile_from_data", return_value=profile),
+                    patch.object(data, "_vr_order_basis_for_today", return_value={}),
+                    patch.object(
+                        data,
+                        "_vr_basis_covers_day",
+                        return_value=has_current_basis,
+                    ),
+                    patch.object(
+                        data,
+                        "execute_vr_schedule_generate_only",
+                        side_effect=lambda username, profile_name: generated.append(profile_name)
+                        or {"ok": True},
+                    ),
+                    patch.object(
+                        data,
+                        "execute_vr_web_orders",
+                        side_effect=lambda username, profile_name: executed.append(profile_name)
+                        or {"ok": True},
+                    ),
+                ):
+                    result = data.execute_vr_schedule_generate_or_orders(
+                        "user", "VR-TQQQ"
+                    )
+
+                self.assertEqual(result["schedule_mode"], "generate_or_orders")
+                self.assertEqual(result["schedule_action"], expected_action)
+                self.assertEqual(len(generated) + len(executed), 1)
+                self.assertEqual(bool(generated), not has_current_basis)
+                self.assertEqual(bool(executed), has_current_basis)
+
+    def test_vr_schedule_dispatches_generate_or_orders_mode(self):
+        kst = timezone(timedelta(hours=9))
+        called: list[str] = []
+        with (
+            patch.object(data, "vr_profiles", return_value=[{"name": "VR-TQQQ"}]),
+            patch.object(
+                data,
+                "_read_vr_schedule",
+                return_value={
+                    "enabled": True,
+                    "time": "15:55",
+                    "mode": "generate_or_orders",
+                    "weekdays": [3],
+                    "last_attempt_date": "",
+                },
+            ),
+            patch.object(data, "_write_vr_schedule", side_effect=lambda *args: dict(args[-1])),
+            patch.object(
+                data,
+                "execute_vr_schedule_generate_or_orders",
+                side_effect=lambda username, profile_name: called.append(profile_name)
+                or {"ok": True, "schedule_action": "generate_only"},
+            ),
+        ):
+            result = data.run_due_vr_schedules(
+                ["user"],
+                datetime(2026, 7, 9, 16, 10, tzinfo=kst),
+            )
+
+        self.assertEqual(called, ["VR-TQQQ"])
+        self.assertEqual(result[0]["schedule_mode"], "generate_or_orders")
+        self.assertEqual(result[0]["schedule_action"], "generate_only")
 
     def test_structured_order_result_telegram_sections(self):
         captured: list[str] = []
